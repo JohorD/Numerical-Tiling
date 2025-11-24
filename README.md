@@ -41,11 +41,3 @@ This project requires the following software:
 
    Some long simulations rely on screen to keep processes running after closing the terminal.
 
-<style>
-    .texttt {
-        font-family: "Courier New", Courier, monospace;
-        background-color: #f4f4f4;
-        padding: 2px 4px;
-        border-radius: 4px;
-    }
-</style>
