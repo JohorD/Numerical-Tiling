@@ -6,6 +6,11 @@ in multifield models of inflation
 
 This repository contains the core code required to reproduce the results presented in the paper “Numerical Tiling-Based Simulations of Decoherence in Multifield Models of Inflation.” The routines are designed to be user-friendly and provide a guided tutorial that walks users through our results and enables further exploration of different configurations of decoherence events. 
 
+<h1 style="font-size: 30px; text-align: center;">
+[![arXiv](https://img.shields.io/badge/arXiv-2511.16801-b31b1b.svg)](https://arxiv.org/abs/2511.16801)
+</h1>
+
+
 [![arXiv](https://img.shields.io/badge/arXiv-2511.16801-b31b1b.svg)](https://arxiv.org/abs/2511.16801)
 
 
