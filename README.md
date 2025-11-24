@@ -18,29 +18,27 @@ The code computes the two-point mode correlation functions (and other observable
 </p>
 
 
+<h3>Prerequisites</h3>
 
-    <h2>Requirements</h2>
+This project requires the following software:
 
-    <p>
-        This project requires the following software and libraries installed:
-    </p>
+1. Python environment:
+   - Python 3.9+
+   - External Python packages:
+     - NumPy
+     - Matplotlib
+     - Pillow
 
-    <ul>
-        <li><span class="texttt">python</span></li>
-        <li><span class="texttt">numpy</span></li>
-        <li><span class="texttt">matplotlib</span></li>
-        <li><span class="texttt">scipy</span></li>
-        <li><span class="texttt">pickle</span></li>
-        <li><span class="texttt">screen</span> (for running persistent terminal sessions)</li>
-        <li>Fortran compiler: <span class="texttt">gfortran</span> or <span class="texttt">ifx</span></li>
-    </ul>
+2. Fortran compiler
 
-    <style>
-        .texttt {
-            font-family: "Courier New", Courier, monospace;
-            background-color: #f4f4f4;
-            padding: 2px 4px;
-            border-radius: 4px;
-        }
-    </style>
+   A Fortran compiler is required to build and run the numerical simulations.
+
+   You may use:
+   - gfortran (GNU Fortran, recommended for portability)
+   - ifx (Intel oneAPI Fortran compiler, recommended for performance)
+
+3. screen for persistent terminal sessions
+
+   Some long simulations rely on screen to keep processes running after closing the terminal.
+
 
