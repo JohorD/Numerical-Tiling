@@ -1,6 +1,6 @@
 <h1 style="font-size: 60px; text-align: center;">
-Numerical tiling-based simulations of decoherence<br>
-in multifield models of inflation
+Numerical tiling-based simulations <br>
+of decoherence in multifield models of inflation
 </h1>
 
 This repository contains the core code required to reproduce the results presented in the paper “Numerical Tiling-Based Simulations of Decoherence in Multifield Models of Inflation.” The routines are designed to be user-friendly and provide a guided tutorial that walks users through our results and enables further exploration of different configurations of decoherence events. 
