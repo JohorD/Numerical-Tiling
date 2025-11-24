@@ -1,0 +1,182 @@
+# modules_py/generate_fortran.py
+import os
+from modules_py.architecture import MODE_FOLDERS
+
+# -------------------------
+# Default profiles
+# -------------------------
+DEFAULT_PROFILES = {
+    "single": {
+        # settings_case
+        "case": {
+            "fortran_mod_pref": 0,
+            "fortran_mod_accident": 1,
+        },
+        # settings_global
+        "global": {
+            # settings_perturbations
+            "fortran_N_mod": 365,
+            "fortran_N_step": 0.2,
+            "fortran_N_initial_inj": 0.0,
+            "fortran_time_resolution": 500,
+            "fortran_ellipse": ".true.",
+            "fortran_ellipse_resolution": 10,
+            # settings_background_and_kphys
+            "initial_phi": 25.0,
+            "initial_phi_dot": 0.0,
+            "initial_ln_a": -5.0,
+            "fortran_kphys": 1000.0,
+            # settings_potential
+            "fortran_potential": "V(φ) = λ φ⁴ / 4",
+            "fortran_Vphi": "1.0d-14 * phi*phi*phi*phi / 4.0",
+            "fortran_Vprime": "1.0d-14 * phi*phi*phi",
+            "fortran_Vprimeprime": "3.0 * 1.0d-14 * phi*phi",
+            # settings_window
+            "fortran_transition": 0.5,
+        },
+        # settings_iter_parallel
+        "parallel": [
+            {"fortran_part_iter_parallel": "Complete", "fortran_iter_initial": 1, "fortran_iter_final": 365},
+            {"fortran_part_iter_parallel": "Part_1",   "fortran_iter_initial": 1,   "fortran_iter_final": 50},
+            {"fortran_part_iter_parallel": "Part_2",   "fortran_iter_initial": 51,  "fortran_iter_final": 100},
+            {"fortran_part_iter_parallel": "Part_3",   "fortran_iter_initial": 101, "fortran_iter_final": 150},
+            {"fortran_part_iter_parallel": "Part_4",   "fortran_iter_initial": 151, "fortran_iter_final": 200},
+            {"fortran_part_iter_parallel": "Part_5",   "fortran_iter_initial": 201, "fortran_iter_final": 250},
+            {"fortran_part_iter_parallel": "Part_6",   "fortran_iter_initial": 251, "fortran_iter_final": 300},
+            {"fortran_part_iter_parallel": "Part_7",   "fortran_iter_initial": 301, "fortran_iter_final": 365},
+        ],
+    },
+
+    "two_field": {
+        # settings_case
+        "case": {
+            "fortran_mod_pref": 0,
+            "fortran_mod_accident": 1,
+        },
+        # settings_global
+        "global": {
+            # settings_perturbations
+            "fortran_N_mod": 415,
+            "fortran_N_step": 0.2,
+            "fortran_N_initial_inj": 0.0,
+            "fortran_time_resolution": 500,
+            "fortran_ellipse": ".true.",
+            "fortran_ellipse_resolution": 10,
+            # settings_background_and_kphys
+            "initial_phi_1_two_field": 20.0,
+            "initial_phi_dot_1_two_field": 0.0,
+            "initial_phi_2_two_field": 20.0,
+            "initial_phi_dot_2_two_field": 0.0,
+            "initial_ln_a": -5.0,
+            "fortran_kphys": 1000.0,
+            # settings_potential
+            "fortran_potential_two_field": "V(φ₁, φ₂) = λ φ₁⁴ / 4 + 1/2 g φ₁² φ₂²",
+            "fortran_Vphi_two_field": "1.0d-14 * phi(1)*phi(1)*phi(1)*phi(1)*0.25 + 0.5*(2.0*(1.0d-14))*phi(1)*phi(1)*phi(2)*phi(2)",
+            "fortran_Vprime_1_two_field": "1.0d-14 * phi(1)*phi(1)*phi(1) + (2.0*(1.0d-14))*phi(1)*phi(2)*phi(2)",
+            "fortran_Vprime_2_two_field": "(2.0*(1.0d-14))*phi(1)*phi(1)*phi(2)",
+            "fortran_Vprimeprime_11_two_field": "3.0 * 1.0d-14 * phi(1)*phi(1) + (2.0*(1.0d-14))*phi(2)*phi(2)",
+            "fortran_Vprimeprime_12_two_field": "2.0*(2.0*(1.0d-14))*phi(1)*phi(2)",
+            "fortran_Vprimeprime_22_two_field": "(2.0*(1.0d-14))*phi(1)*phi(1)",
+            # settings_window
+            "fortran_transition": 0.5,
+            # settings_environment / interactions
+            #Generic
+            "fortran_interaction_two_field": "I = α₁ v₁ + α₂ v₂",
+            "fortran_alpha_1_two_field": 1.0,
+            "fortran_alpha_2_two_field": 1.0,
+            "fortran_interaction_1_two_field": "alpha(1)",
+            "fortran_interaction_2_two_field": "alpha(2)",            
+            #Isentropic
+            #fortran_interaction_two_field="I∥ = α₁ v∥₁ + α₂ v∥₂",
+            #fortran_alpha_1_two_field=1.0,
+            #fortran_alpha_2_two_field=1.0,
+            #fortran_interaction_1_two_field= "( alpha(1)*phi_dot(1)*phi_dot(1) + alpha(2)*phi_dot(1)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
+            #fortran_interaction_2_two_field= "( alpha(1)*phi_dot(1)*phi_dot(2) + alpha(2)*phi_dot(2)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
+            #Isocurvature
+            #fortran_interaction_two_field="I⊥ = α₁ v⊥₁ + α₂ v⊥₂",
+            #fortran_alpha_1_two_field=1.0,
+            #fortran_alpha_2_two_field=1.0,
+            #fortran_interaction_1_two_field= "alpha(1) - ( alpha(1)*phi_dot(1)*phi_dot(1) + alpha(2)*phi_dot(1)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
+            #fortran_interaction_2_two_field= "alpha(2) - ( alpha(1)*phi_dot(1)*phi_dot(2) + alpha(2)*phi_dot(2)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
+        },
+        # settings_iter_parallel
+        "parallel": [
+            {"fortran_part_iter_parallel": "Complete", "fortran_iter_initial": 1, "fortran_iter_final": 415},
+            {"fortran_part_iter_parallel": "Part_1",   "fortran_iter_initial": 1,   "fortran_iter_final": 60},
+            {"fortran_part_iter_parallel": "Part_2",   "fortran_iter_initial": 61,  "fortran_iter_final": 120},
+            {"fortran_part_iter_parallel": "Part_3",   "fortran_iter_initial": 121, "fortran_iter_final": 180},
+            {"fortran_part_iter_parallel": "Part_4",   "fortran_iter_initial": 181, "fortran_iter_final": 240},
+            {"fortran_part_iter_parallel": "Part_5",   "fortran_iter_initial": 241, "fortran_iter_final": 300},
+            {"fortran_part_iter_parallel": "Part_6",   "fortran_iter_initial": 301, "fortran_iter_final": 360},
+            {"fortran_part_iter_parallel": "Part_7",   "fortran_iter_initial": 361, "fortran_iter_final": 415},
+        ],
+    },
+}
+
+# -------------------------
+# Load template from folder
+# -------------------------
+def load_template(filename):
+    path = os.path.join("templates_fortran", filename)
+    with open(path, "r") as f:
+        return f.read()
+
+
+# -------------------------
+# Build parameter sets
+# -------------------------
+def build_parameter_sets(mode, case_overrides=None, global_overrides=None, parallel_overrides=None):
+
+    if mode not in DEFAULT_PROFILES:
+        raise ValueError("Unknown mode.")
+
+    profile = DEFAULT_PROFILES[mode]
+
+    case = {**profile["case"], **(case_overrides or {})}
+    global_p = {**profile["global"], **(global_overrides or {})}
+    parallel_list = parallel_overrides if parallel_overrides else profile["parallel"]
+
+    return [
+        {**case, **global_p, **p}
+        for p in parallel_list
+    ]
+
+
+# -------------------------
+# Generate .f90 files into the proper folder
+# -------------------------
+def generate_fortran_files(template_text, mode, param_sets, output_root=None):
+    """
+    Generates:
+      MODE_FOLDERS[mode] / Data_&_Codes_xxx / Tiling_...f90
+    """
+    if mode not in MODE_FOLDERS:
+        raise ValueError(f"Unknown mode '{mode}'.")
+
+    output_root = output_root or MODE_FOLDERS[mode]
+
+    # All param_sets share same fortran_mod_pref
+    mod_pref = param_sets[0]["fortran_mod_pref"]
+    folder_tag = f"Data_&_Codes_{mod_pref:03d}"
+    target_dir = os.path.join(output_root, folder_tag)
+    os.makedirs(target_dir, exist_ok=True)
+
+    generated = []
+
+    for params in param_sets:
+
+        if mode == "single":
+            fname = f"Tiling_Single_Field_Case_{params['fortran_mod_pref']}_{params['fortran_part_iter_parallel']}.f90"
+        elif mode == "two_field":
+            fname = f"Tiling_Two_Field_Case_{params['fortran_mod_pref']}_{params['fortran_part_iter_parallel']}.f90"
+
+        out_path = os.path.join(target_dir, fname)
+
+        with open(out_path, "w") as f:
+            f.write(template_text.format(**params))
+
+        generated.append(out_path)
+        print(f"[OK] Generated: {out_path}")
+
+    return generated
+

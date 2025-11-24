@@ -1,0 +1,522 @@
+program ps_decoherence
+
+! Evolving primordial fluctuations undergoing decoherence effects.
+! The code solves single mode evolution and produces deformed power
+! spectrum for an arbitrary array of state accidents. Please cite
+! arxiv:2511.16801 if you use it in your research.
+
+!!!!!!!!!!!!!!!!!!!!!
+
+
+    implicit none
+    ! This is exactly what you think it is...
+    real, parameter :: twopi = 6.28318530717958647692528676655900577Q0
+
+    ! size of the state vector
+    integer, parameter :: nvar = 7
+
+    ! Physical (kphys) and comoving (kcom) wavevectors
+    real :: kphys, kcom
+    ! timestep and counter to inject different modes
+    real :: dt, N_ref 
+        
+    ! different state vectors
+    real :: state(nvar), state_init(nvar), state_back(nvar)
+    ! Dummy human-readable variables
+    real :: phi, phi_dot, Hbl, ln_a, L_k, L_k_prime, theta_k_prime
+
+    ! Control variables
+    logical :: change, break, back, perturbations_flag
+    ! File and iteration counter
+    integer :: j, iter
+    
+    ! Integer labels for the Wigner ellipse evolution file and the power spectrum
+    integer :: unit_ellipse_wigner, unit_power_spectrum
+      
+    ! Name of the output files
+    character(len=100) :: filename_power_spectrum
+    character(len=100) :: filename_ellipse_wigner
+    
+    ! System mkdir
+    character(len=100) :: cmd  
+    
+    
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+    ! =====================
+    ! Perturbations  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================
+
+
+    ! Number of modes to produce the power spectrum
+    integer, parameter :: N_mod = {fortran_N_mod}
+    ! modes-step
+    real, parameter :: N_step = {fortran_N_step}
+    ! Initial N_inj
+    real, parameter :: N_initial_inj = {fortran_N_initial_inj}
+    
+    
+    ! Auxiliar output files
+    integer, parameter :: time_resolution = {fortran_time_resolution}
+
+    ! Set as .true. to produce Wigner ellipse evolution, and as .false. to skip it
+    logical :: ellipse = {fortran_ellipse}
+
+    integer, parameter :: ellipse_resolution = {fortran_ellipse_resolution}
+    
+    ! iter_parallel {fortran_part_iter_parallel}
+    integer, parameter :: iter_initial = {fortran_iter_initial}
+    integer, parameter :: iter_final = {fortran_iter_final}
+
+    
+    ! =====================
+    ! Perturbations  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================
+    
+    
+    ! Setting up the accidents
+    ! Case 0: No accidents
+    ! Case 1: Accidents
+    ! Case 0 is set by default (close system, without environment)
+    integer, parameter :: mod_pref = {fortran_mod_pref}
+
+    ! Setting up the accidents files
+    ! Case 0: k accidents
+    ! Case 1: N accidents
+    ! Case 1 is set by default (N-window)
+    integer, parameter :: mod_accident = {fortran_mod_accident}
+
+
+    ! =====================
+    ! Background_and_kphys  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================
+    
+    
+    ! Initial background field conditions in human-readable form passed to State vector
+    phi = {initial_phi}
+    phi_dot = {initial_phi_dot}
+    ln_a = {initial_ln_a}
+    
+    ! kphys/H: {fortran_kphys} for kphys = cte (Mode injection)
+    kphys = {fortran_kphys}
+    
+    
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+    state_back(1) = phi
+    state_back(2) = phi_dot
+    Hbl = hubb_function(state_back)
+    state_back(3) = Hbl
+    state_back(4) = ln_a
+    
+    ! Evolving backround from N = {initial_ln_a} and saving in state_back
+    back = .true.
+    
+    ! Turn off perturbations
+    perturbations_flag = .false.
+
+    ! Evolution loop to converge to the attractor (end in N = {fortran_N_initial_inj})
+    do while (back)
+        call gl8(state_back, 0.1, kcom, N_ref, iter, perturbations_flag)
+        if (state_back(4) >= N_initial_inj) then
+            back = .false.
+        end if
+    end do
+
+    ! Mkdir cmd
+    write(cmd, '("mkdir -p Evolution_", I3.3)') mod_pref
+    call system(cmd)
+
+    ! Open file for power spectrum & ellipse
+    unit_power_spectrum = 20
+    unit_ellipse_wigner = 30
+    
+    
+    ! Open file for dynamics of Power Spectrum
+    write(filename_power_spectrum, '("Evolution_", I3.3, "/Power_Spectrum_PS_{fortran_part_iter_parallel}_", I3.3, ".dat")') mod_pref, mod_pref
+    
+    open(unit=unit_power_spectrum, file=filename_power_spectrum, status="unknown", action="write", form="formatted")
+    
+    ! Setting up the Kphys and timestep
+    kphys = kphys * state_back(3)
+    dt = twopi * (1.0/kphys) / 60.0
+    
+    ! Calling background variables
+    state_init = state_back   
+
+    ! Loop to produce the power spectrum from N_mod modes
+    do iter = iter_initial, iter_final        
+        N_ref = N_initial_inj + N_step * iter
+        unit_ellipse_wigner = unit_ellipse_wigner + 1
+        
+        change = .true.
+        break = .true.
+        perturbations_flag = .false.
+        
+        ! Open file for dynamics of the Wigner ellipse
+        if (ellipse .and. mod(iter, ellipse_resolution) == 0) then
+            write(filename_ellipse_wigner, '("Evolution_", I3.3, "/Ellipse_P", I3.3, "_Iter_", I6.6, ".dat")') mod_pref, mod_pref, iter
+            open(unit=unit_ellipse_wigner, file=filename_ellipse_wigner, status="unknown", action="write", form="formatted")
+        end if
+
+        ! 🔹 Evolving the background up to N_ref e-folds...
+        state = state_init
+        do while (change)
+            call gl8(state, dt / 0.05, kcom, N_ref, iter, perturbations_flag)
+            if (state(4) >= N_ref) then
+                ! save state vector
+                state_init = state
+                ! Compute conformal k and set-up initial perturbations in
+                ! Minkowski vacuum
+                kcom = kphys * exp(state_init(4))  ! Conformal mode calculation
+                L_k = 1.0 / sqrt(2.0 * sqrt(kcom*kcom - zpp_over_z(state_init)))
+                L_k_prime = 0.0
+                theta_k_prime = sqrt(kcom*kcom - zpp_over_z(state_init))
+                ! Mukhanov-Sasaki state vector
+                state_init(5) = L_k
+                state_init(6) = L_k_prime
+                state_init(7) = theta_k_prime
+                ! End evolution
+                change = .false.
+                ! Turn on perturbation-evolution
+                perturbations_flag = .true.	
+            end if
+        end do
+
+        ! 🔹 Main evolution loop up to the end of inflation (ε >= 1.0)
+        state = state_init
+        j = 0
+        do while (break)
+            ! Reducing time step to evolve squeezed modes 0.05
+            call gl8(state, dt / 0.05, kcom, N_ref, iter, perturbations_flag)
+            
+            ! Store ellipse evolution every {fortran_time_resolution} steps
+            if (ellipse .and. mod(iter, ellipse_resolution) == 0 .and. mod(j, time_resolution) == 0) then       
+                write(unit_ellipse_wigner, '(17(ES24.16E3,1X))') state(1), state(2), state(3), state(4), state(5), state(6), state(7), &
+                                                        epsilon_inflation(state), zpp_over_z(state), &
+                                                        Vphi(state), Vprime(state), Vprimeprime(state), &
+                                                        kcom, kphys, z_func(state), source_open(mod_pref, state, kcom, N_ref, iter), &
+                                                        logL_function(state, kcom)
+            end if
+
+            j = j + 1
+            
+            if (epsilon_inflation(state) >= 1.0) then
+                ! Exit when inflation ends
+                break = .false.
+            end if
+
+        end do
+
+        ! Save and write state vector
+        write(unit_power_spectrum, '(17(ES24.16E3,1X))') state(1), state(2), state(3), &
+        state(4), state(5), state(6), state(7), epsilon_inflation(state), &
+        Vphi(state), Vprime(state), Vprimeprime(state), &
+        zpp_over_z(state), kcom, kphys, z_func(state), source_open(mod_pref, state, kcom, N_ref, iter), &
+        logL_function(state, kcom)
+
+        ! Close file and write
+        if (ellipse .and. mod(iter, ellipse_resolution) == 0) then
+            close(unit=unit_ellipse_wigner)
+        end if
+        write(*,*) "Simulation ends for N_ref (injected) = ", N_ref
+
+        ! Reset state
+        state = state_init
+    end do
+
+    ! Close power spectrum file
+    close(unit=unit_power_spectrum)
+    
+    
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! End of the main code
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+    
+contains
+
+
+    ! 🔹 Equations of motion
+    subroutine evalf(y, dydx, kcom, N_ref, iter_inj, perturbations_flag)
+        real, intent(in) :: y(nvar)
+        real, intent(out) :: dydx(nvar)
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        integer, intent(in) :: iter_inj
+        logical, intent(in) :: perturbations_flag
+        
+        dydx = 0.0d0
+        
+        ! ---------- Background ----------
+        ! dphi/dt = phidot
+        dydx(1) = y(2)
+        ! dphidot/dt = -3H*phidot - V´
+        dydx(2) = -3.0 * y(3) * y(2) - Vprime(y)
+        ! dH/dt = -phidot**2/2
+        dydx(3) = -0.5 * y(2)*y(2)
+        ! d ln_a/dt = H
+        dydx(4) = y(3)
+        
+        ! ---------- Perturbations ----------
+        
+        if (perturbations_flag) then
+        
+            ! d L_k/dt = L_k´/a
+            dydx(5) = y(6) * exp(-y(4))
+            ! d L_k'/dt = L_k''/a = -(k**2 - z''/z - theta_k_prime**2)*L_k/a
+            dydx(6) = -(kcom*kcom - zpp_over_z(y) - y(7)*y(7)) * y(5) * exp(-y(4))
+            ! d theta_k_prime/dt = -2 L'*theta_k_prime/L/a + source/(2*a*theta_prime*L_k**2)
+            dydx(7) = -2.0 * (y(7) * y(6) / y(5)) * exp(-y(4)) + &
+                      source_open(mod_pref, y, kcom, N_ref, iter_inj) * exp(-y(4)) / (2.0 * y(7) * y(5)*y(5))  ! De(re)coherence-Source
+        
+        end if
+        
+    end subroutine evalf
+
+    ! 🔹 8th-order Gauss-Legendre integrator
+    subroutine gl8(y, dt, kcom, N_ref, iter_inj, perturbations_flag)
+        integer, parameter :: s = 4, n = 7
+        real y(n), g(n,s), dt; integer i, k
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        integer, intent(in) :: iter_inj
+        logical, intent(in) :: perturbations_flag
+
+        ! Butcher tableau for 8th order Gauss-Legendre method
+        real, parameter :: a(s,s) = reshape((/ &
+                 0.869637112843634643432659873054998518Q-1, -0.266041800849987933133851304769531093Q-1, &
+                 0.126274626894047245150568805746180936Q-1, -0.355514968579568315691098184956958860Q-2, &
+                 0.188118117499868071650685545087171160Q0,   0.163036288715636535656734012694500148Q0,  &
+                 -0.278804286024708952241511064189974107Q-1,  0.673550059453815551539866908570375889Q-2, &
+                 0.167191921974188773171133305525295945Q0,   0.353953006033743966537619131807997707Q0,  &
+                 0.163036288715636535656734012694500148Q0,  -0.141906949311411429641535704761714564Q-1, &
+                 0.177482572254522611843442956460569292Q0,   0.313445114741868346798411144814382203Q0,  &
+                 0.352676757516271864626853155865953406Q0,   0.869637112843634643432659873054998518Q-1 /), (/s,s/))
+        real, parameter ::   b(s) = (/ &
+                 0.173927422568726928686531974610999704Q0,   0.326072577431273071313468025389000296Q0,  &
+                 0.326072577431273071313468025389000296Q0,   0.173927422568726928686531974610999704Q0  /)
+        
+        ! iterate trial steps
+        g = 0.0; do k = 1,16
+                g = matmul(g,a)
+                do i = 1,s
+                        call evalf(y + g(:,i)*dt, g(:,i), kcom, N_ref, iter_inj, perturbations_flag)
+                end do
+        end do
+        
+        ! update the solution
+        y = y + matmul(g,b)*dt
+
+    end subroutine gl8
+
+    
+    ! 🔹 Potential, derivatives and auxiliary functions
+    
+    ! {fortran_potential}
+    ! V(phi)
+    function Vphi(y)
+        real, intent(in) :: y(nvar)
+        real Vphi, phi, mass_phi
+        phi = y(1)
+        Vphi = {fortran_Vphi}
+    end function Vphi
+
+    ! V'(phi)
+    function Vprime(y)
+        real, intent(in) :: y(nvar)
+        real Vprime, phi, mass_phi
+        phi = y(1)
+        Vprime = {fortran_Vprime}
+    end function Vprime
+
+    ! V''(phi)
+    function Vprimeprime(y)
+        real, intent(in) :: y(nvar)
+        real Vprimeprime, phi, mass_phi
+        phi = y(1)
+        Vprimeprime = {fortran_Vprimeprime}
+    end function Vprimeprime
+    
+    
+    ! 🔹 Hubble parameter
+    function hubb_function(y)
+        real, intent(in) :: y(nvar)
+        real hubb_function, phi, phi_dot
+        phi = y(1); phi_dot = y(2)
+        hubb_function = sqrt(phi_dot*phi_dot / 6.0 + Vphi(y) / 3.0)
+    end function hubb_function
+
+    ! 🔹 epsilon
+    function epsilon_inflation(y)
+        real, intent(in) :: y(nvar)
+        real epsilon_inflation, phi_dot, Hubble
+        Hubble = y(3); phi_dot = y(2)
+        epsilon_inflation = phi_dot*phi_dot / (2.0 * Hubble*Hubble)
+    end function epsilon_inflation
+    
+    
+    ! 🔹 Computing z''/z
+    function zpp_over_z(y)
+        real, intent(in) :: y(nvar)
+        real epsilon1, epsilon2, epsilon3, zpp_over_z, hubbp, hubbpp, hubbppp
+        real Vpp, ddot_phi, tdot_phi, eps2dot
+        real z_func, phi_dot, Hubble, e_fold
+        e_fold = y(4); Hubble = y(3); phi_dot = y(2)
+            Vpp = Vprimeprime(y)
+            ddot_phi = -3.d0*Hubble*phi_dot-Vprime(y)
+            epsilon1 = epsilon_inflation(y)
+            hubbp = -0.5*phi_dot*phi_dot
+            tdot_phi = -3.0*hubbp*phi_dot-3.0*Hubble*ddot_phi-Vpp*phi_dot
+            hubbpp = -phi_dot*ddot_phi
+            hubbppp = -(ddot_phi*ddot_phi)-phi_dot*tdot_phi
+            epsilon2 = hubbpp/(Hubble*hubbp)-2.0*hubbp/(Hubble*Hubble)
+            eps2dot = hubbppp/(Hubble*hubbp)-(hubbpp*((hubbp*hubbp)+hubbpp*Hubble))/((Hubble*hubbp)*(Hubble*hubbp))-2.0*hubbpp/(Hubble*Hubble)+4.0*(hubbp*hubbp)/(Hubble*Hubble*Hubble)
+            epsilon3 = eps2dot/(Hubble*epsilon2)
+
+            zpp_over_z = exp(2.0*e_fold)*(Hubble*Hubble)*(2.d0-epsilon1+1.5*epsilon2+0.25*(epsilon2*epsilon2)-0.5*epsilon2*epsilon1+0.5*epsilon2*epsilon3)
+    end function zpp_over_z
+    
+    ! 🔹 Computing z
+    function z_func(y)
+        real, intent(in) :: y(nvar)
+        real z_func, phi_dot, Hubble, scale_f
+        scale_f = exp(y(4)); Hubble = y(3); phi_dot = y(2)
+        z_func = phi_dot * scale_f / Hubble
+    end function z_func
+
+    ! 🔹 Log(l) function
+    function logL_function(y, kcom)
+        real, intent(in) :: y(nvar), kcom
+        real logL_function, ln_a
+        ln_a = y(4) 
+        logL_function = y(4) - log(kcom)
+    end function logL_function
+    
+    
+    ! 🔹 Filter Center Hann Function    
+    pure function Hann_function(x, L) result(H)
+        real, intent(in) :: x, L
+        real H
+        
+        if (x <= -L/2.0 .or. x >= L/2.0) then
+            H = 0.0
+        else
+            H = cos(0.5 * twopi * x / L)*cos(0.5 * twopi * x / L)
+        end if
+    
+    end function Hann_function
+    
+    ! 🔹 Taper Center Hann Function    
+    pure function Hann_Taper_Center(x, x_ref, x_delta) result(H)
+        real, intent(in) :: x, x_ref, x_delta
+        real ep1, ep2, xm1, xm2, x1, x2, L1, L2, H
+        ! It can only be between 0 and 1 (open), 0.5 is recommended
+        
+        ep1 = {fortran_transition}
+        ep2 = {fortran_transition}
+        
+        xm1 = x_ref - ep1 * x_delta
+        xm2 = x_ref + ep2 * x_delta
+        
+        x1 = x_ref - x_delta
+        x2 = x_ref + x_delta
+        
+        L1 = 2.0 * x_delta * (1.0 - ep1)
+        L2 = 2.0 * x_delta * (1.0 - ep2)
+        
+        if (x <= x1 .or. x >= x2) then
+            H = 0.0
+        else if (x > x1 .and. x < xm1) then
+            H = Hann_function(x - xm1, L1)
+        else if (x >= xm1 .and. x <= xm2) then
+            H = 1.0
+        else if (x > xm2 .and. x < x2) then
+            H = Hann_function(x - xm2, L2)
+        end if
+
+    end function Hann_Taper_Center
+    
+    
+    ! 🔹  Window for the accident (in k)s
+    function Window_Ks(kcom, N_ref, N_star, delta_star)
+        real, intent(in) :: kcom, N_ref, N_star, delta_star
+        real Window_Ks, N_inj
+        
+        N_inj = N_ref
+        ! N: inj
+        Window_Ks = Hann_Taper_Center(N_inj, N_star, delta_star)
+    end function Window_Ks
+    
+    ! 🔹  Window for the accident (in N)s
+    function Window_Ns(y, kcom, N_star, delta_star)
+        real, intent(in) :: kcom, N_star, delta_star
+        real, intent(in) :: y(nvar)
+        real Window_Ns, N_efold
+        
+        N_efold = y(4)
+        
+        Window_Ns = Hann_Taper_Center(N_efold, N_star, delta_star)
+    end function Window_Ns
+
+    ! 🔹  Window for the accident (in ln(ell)): logLs
+    function Window_logLs(y, kcom, loglE, delta_loglE)
+        real, intent(in) :: y(nvar), kcom, loglE, delta_loglE
+        real Window_logLs, log_length_phys
+        
+        log_length_phys = logL_function(y, kcom)
+        Window_logLs = Hann_Taper_Center(log_length_phys, loglE, delta_loglE)        
+    end function Window_logLs
+
+    ! 🔹  Amplitude for the accident
+    function Amplitude_accident(y, kcom, kgamma, p)
+        real, intent(in) :: y(nvar), kcom, kgamma, p
+        real Amplitude_accident, e_fold, Hubble 
+
+        e_fold = y(4); Hubble = y(3)
+        
+        Amplitude_accident = sign(1.0, kgamma) * kgamma * kgamma * kcom * kcom * &
+                   exp((p - 3.0) * e_fold)    
+    end function Amplitude_accident
+
+    ! 🔹  Amplitude for the accident
+    function Accident_Source(y, kgamma, p, kcom, N_ref, N_star, delta_star, loglE, delta_loglE)
+        real, intent(in) :: y(nvar), kgamma, p, kcom, N_ref, N_star, delta_star, loglE, delta_loglE
+        real Accident_Source
+        
+        select case (mod_accident)
+            case (0)  ! N accidents
+                Accident_Source = Window_Ks(kcom, N_ref, N_star, delta_star) * Window_logLs(y, kcom, loglE, delta_loglE) * Amplitude_accident(y, kcom, kgamma, p)
+            case (1)  ! k accidents
+                Accident_Source = Window_Ns(y, kcom, N_star, delta_star) * Window_logLs(y, kcom, loglE, delta_loglE) * Amplitude_accident(y, kcom, kgamma, p)
+            case default
+                print *, "¡Error! mod_accident must be 0, 1"
+                stop
+        end select
+
+    end function Accident_Source
+    
+    
+    ! 🔹 Source term in equations of motion (cases)
+    function source_open(mod_pref, y, kcom, N_ref, iter_inj) result(source)
+        integer, intent(in) :: mod_pref
+        integer, intent(in) :: iter_inj
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        real e_fold, source, Hubble
+        real int{fortran_mod_pref}
+        
+        e_fold = y(4); Hubble = y(3)
+        int{fortran_mod_pref} = 0.0
+        
+        !Accident_Source(y, kgamma, p, kcom, N_ref, N_star, delta_star, loglE, delta_loglE)
+        
+        include '../int{fortran_mod_pref}_block_file/int{fortran_mod_pref}_summary.inc'
+        source = int{fortran_mod_pref}
+        
+    end function source_open
+    
+end program ps_decoherence    

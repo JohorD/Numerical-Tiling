@@ -1,0 +1,461 @@
+# modules_py/make_split_incs.py
+import os
+from modules_py.architecture import MODE_FOLDERS
+from modules_py.generate_fortran import DEFAULT_PROFILES
+from modules_py.load_data import get_ylabel_dict
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.colors as mcolors
+
+
+
+def make_split_incs(configurations, mode, param_sets, reference_line_y):
+    """
+    Generate .inc files describing decoherence-source events for each mod_pref.
+
+    Produces
+    --------
+    For each mod_pref:
+        intX_block_YYY.inc
+        intX_summary.inc
+    """
+
+    if mode not in MODE_FOLDERS:
+        raise ValueError(f"Mode '{mode}' not recognized")
+
+    # ============================================================
+    # GLOBAL PARAMETERS FOR THIS CASE (from param_sets)
+    # ============================================================
+    fortran_N_mod = param_sets[0]["fortran_N_mod"]
+    fortran_N_step = param_sets[0]["fortran_N_step"]
+    fortran_N_initial_inj = param_sets[0]["fortran_N_initial_inj"]
+
+    # Folder for the mode
+    base_folder = MODE_FOLDERS[mode]
+    os.makedirs(base_folder, exist_ok=True)
+
+    # Injections: N_initial_inj + i*N_step, for i = 1..N_mod
+    injected_modes = [
+        fortran_N_initial_inj + fortran_N_step * i
+        for i in range(1, fortran_N_mod + 1)
+    ]
+
+    total_files = 0
+    total_modes_with_accidents = 0
+
+    print(f"\n=== Generating split .inc files for mode '{mode}' ===")
+    print(f"Folder: {base_folder}")
+    print(f"N_mod = {fortran_N_mod}, N_step = {fortran_N_step}")
+    print(f"Injected modes count: {len(injected_modes)}")
+    print(f"Reference line y = {reference_line_y}\n")
+
+    # ============================================================
+    # LOOP OVER EACH mod_pref DEFINED BY THE USER
+    # ============================================================
+    for mod_pref, cfg in configurations.items():
+
+        mod_accident = cfg["case_custom"]["fortran_mod_accident"]
+        accidents = cfg.get("accidents", [])
+
+        # Folder for this mod_pref
+        pref_folder = os.path.join(base_folder, f"int{mod_pref}_block_file")
+        os.makedirs(pref_folder, exist_ok=True)
+
+        modes_with_accidents = []
+
+        print(f"→ Processing mod_pref = {mod_pref} ...")
+
+        # ============================================================
+        # LOOP OVER EACH INJECTED MODE
+        # ============================================================
+        for idx_mode, N_inj in enumerate(injected_modes):
+
+            # Select neighbor injected modes
+            if idx_mode == 0:
+                neighbors = [injected_modes[0], injected_modes[1]]
+            elif idx_mode == len(injected_modes) - 1:
+                neighbors = [injected_modes[-2], injected_modes[-1]]
+            else:
+                neighbors = [
+                    injected_modes[idx_mode - 1],
+                    injected_modes[idx_mode],
+                    injected_modes[idx_mode + 1],
+                ]
+
+            # ============================================================
+            # CASE 1 → No accidents defined for this mod_pref
+            # ============================================================
+            if not accidents:
+                lines = [f"int{mod_pref} = 0.0"]
+
+            else:
+                # ============================================================
+                # CASE 2 → Determine which accidents affect the mode
+                # ============================================================
+                affecting_accidents = []
+
+                for (kg, p, N_star, ds, loglE, dloglE) in accidents:
+
+                    if mod_accident == 0:
+                        # =============== PARALLELOGRAM LOGIC ===============
+                        affects = any((N_star - ds) <= m <= (N_star + ds) for m in neighbors)
+
+                    else:
+                        # =============== RECTANGLE + PROJECTION ===============
+                        ymin, ymax = loglE - dloglE, loglE + dloglE
+                        xmin, xmax = N_star - ds, N_star + ds
+
+                        # Projected x-range
+                        xmin_proj = xmin + (reference_line_y - ymax)
+                        xmax_proj = xmax + (reference_line_y - ymin)
+
+                        affects = any(xmin_proj <= m <= xmax_proj for m in neighbors)
+
+                    if affects:
+                        affecting_accidents.append((kg, p, N_star, ds, loglE, dloglE))
+
+                # ============================================================
+                # WRITE .inc BLOCK FOR THIS MODE
+                # ============================================================
+                if not affecting_accidents:
+                    lines = [f"int{mod_pref} = 0.0"]
+
+                else:
+                    modes_with_accidents.append(idx_mode + 1)
+
+                    lines = [
+                        f"! --- AUTOGENERATED: accidents affecting mode {N_inj:.1f} ---"
+                    ]
+
+                    base = f"int{mod_pref} ="
+
+                    for j, (kg, p, Ns, ds, loglE, dloglE) in enumerate(affecting_accidents):
+                        call = (
+                            f"Accident_Source(y, {kg}, {p}, kcom, N_ref, "
+                            f"{Ns}, {ds}, {loglE}, {dloglE})"
+                        )
+
+                        if j == 0:
+                            if len(affecting_accidents) == 1:
+                                lines.append(f"{base} {call}")
+                            else:
+                                lines.append(f"{base} {call} + &")
+                        elif j == len(affecting_accidents) - 1:
+                            lines.append(f"{' ' * len(base)} {call}")
+                        else:
+                            lines.append(f"{' ' * len(base)} {call} + &")
+
+            # Save block file
+            block_file = os.path.join(
+                pref_folder, f"int{mod_pref}_block_{idx_mode+1:03d}.inc"
+            )
+            with open(block_file, "w") as f:
+                f.write("\n".join(lines))
+
+            total_files += 1
+
+        # ============================================================
+        # SUMMARY FILE
+        # ============================================================
+        summary = []
+        summary.append(f"! --- AUTOGENERATED SUMMARY FOR int{mod_pref} ---")
+
+        if modes_with_accidents:
+            summary.append(f"! Modes with accidents: {len(modes_with_accidents)}")
+            summary.append("")
+
+            modes_with_accidents.sort()
+
+            for i, mode_num in enumerate(modes_with_accidents):
+                if i == 0:
+                    summary.append(f"if (iter_inj == {mode_num}) then")
+                else:
+                    summary.append(f"else if (iter_inj == {mode_num}) then")
+
+                summary.append(
+                    f"    include '../int{mod_pref}_block_file/int{mod_pref}_block_{mode_num:03d}.inc'"
+                )
+
+            summary.append("else")
+            summary.append(f"    int{mod_pref} = 0.0")
+            summary.append("end if")
+
+        else:
+            summary.append("! No modes affected")
+            summary.append(f"int{mod_pref} = 0.0")
+
+        summary_file = os.path.join(pref_folder, f"int{mod_pref}_summary.inc")
+        with open(summary_file, "w") as f:
+            f.write("\n".join(summary))
+
+        total_modes_with_accidents += len(modes_with_accidents)
+
+        print(f"  Modes with accidents: {len(modes_with_accidents)}")
+
+    print("\n=== Global summary ===")
+    print(f"Total .inc files generated: {total_files}")
+    print(f"Total modes affected: {total_modes_with_accidents}")
+    print(f"Folder: {base_folder}\n")
+
+
+
+# =====================================================================
+# Accident Preview Plotter
+# =====================================================================
+
+def preview_accidents(
+        configurations,
+        mode,
+        param_sets,
+        reference_line_y,
+        structure_ref,
+        log_scale=False,
+        save=False,
+        output_prefix="Preview",
+        formats=("pdf",),
+    ):
+
+    
+    # Get label dictionary based on mode
+    ylabel_dict = get_ylabel_dict(mode)
+    
+    # Calculate vmax for each configuration
+    config_vmax = {}
+    for mod_pref, cfg in configurations.items():
+        accidents = cfg.get("accidents", [])
+        if accidents:
+            max_kgamma = max(abs(acc[0]) for acc in accidents)
+            config_vmax[mod_pref] = max_kgamma
+        else:
+            config_vmax[mod_pref] = 1.0  # Default value
+    
+    figures = []
+    
+    # Process each configuration
+    for mod_pref, cfg in configurations.items():
+        # Get accidents and mod_accident for this configuration
+        accidents = cfg.get("accidents", [])
+        mod_accident = cfg["case_custom"]["fortran_mod_accident"]
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
+        
+        # Get vmax for this configuration
+        vmax = config_vmax[mod_pref]
+        
+        # Set up colormap and normalization
+        if log_scale:
+            norm = mcolors.SymLogNorm(linthresh=1e-4, linscale=1, vmin=-vmax, vmax=+vmax)
+        else:
+            norm = mcolors.Normalize(vmin=-vmax, vmax=+vmax)
+        
+        #cmap = mcolors.LinearSegmentedColormap.from_list(
+        #    "custom", ["#E3D05B", "white", "#A67A50"]
+        #)
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+        "custom", ["#321dc3", "#ff7500"]
+        )
+        
+        # Plot ellipse from reference structure
+        if structure_ref["ellipse"]:
+            first_ellipse_key = list(structure_ref["ellipse"].keys())[0]
+            
+            # Plot ellipse trajectories
+            for i, ellipse_key in enumerate(structure_ref["ellipse"].keys()):
+                if structure_ref["ellipse"][ellipse_key] is not None:
+                    ax.plot(
+                        structure_ref["ellipse"][ellipse_key]["N"], 
+                        structure_ref["ellipse"][ellipse_key]["logL"], 
+                        linestyle='--', color='black', lw=2.0, alpha=0.2, zorder=10
+                    )
+                    
+                    # Add arrows
+                    for y_arrow in [8.0, 12.0]:
+                        x_arrow = y_arrow + structure_ref["ellipse"][ellipse_key]["N"][0] - reference_line_y
+                        dx, dy = 0.1, 0.1
+                        ax.annotate(
+                            "",
+                            xy=(x_arrow + dx, y_arrow + dy), 
+                            xytext=(x_arrow, y_arrow),
+                            arrowprops=dict(
+                                arrowstyle="->", 
+                                color='black',
+                                lw=2.0, alpha=0.2
+                            ), 
+                            zorder=10
+                        )
+            
+            # Fill inside/outside horizon regions
+            ax.fill_between(
+                structure_ref["ellipse"][first_ellipse_key]["N"], 
+                np.log(1.0/structure_ref["ellipse"][first_ellipse_key]["Hubble"]), 
+                80.0,
+                color='#a5c8e1', alpha=1.0, label='Outside horizon'
+            )
+            ax.fill_between(
+                structure_ref["ellipse"][first_ellipse_key]["N"], 
+                0.0, 
+                np.log(1.0/structure_ref["ellipse"][first_ellipse_key]["Hubble"]),
+                color='#ffc491', alpha=1.0, label='Inside horizon'
+            )
+            
+            # Plot constant kphys and Hubble lines
+            ax.plot(
+                structure_ref["ellipse"][first_ellipse_key]["N"], 
+                np.log(1.0/structure_ref["ellipse"][first_ellipse_key]["kphys"]), 
+                color='b', linestyle='--', lw=1.5, alpha=0.8
+            )
+            ax.plot(
+                structure_ref["ellipse"][first_ellipse_key]["N"], 
+                np.log(1.0/structure_ref["ellipse"][first_ellipse_key]["Hubble"]), 
+                color='red', linestyle='-', lw=2.0, alpha=0.7
+            )
+        
+        # Plot accidents
+        for (kgamma, p, N_star, delta_star, loglE, delta_loglE) in accidents:
+            ymin = loglE - delta_loglE
+            ymax = loglE + delta_loglE
+            
+            color = cmap(norm(kgamma))
+            
+            if mod_accident == 0:
+                # Parallelogram logic
+                xmin_base = N_star - delta_star
+                xmax_base = N_star + delta_star
+                ymin_shift = ymin - reference_line_y
+                ymax_shift = ymax - reference_line_y
+                
+                vertices = [
+                    (xmin_base + ymin_shift, ymin),
+                    (xmax_base + ymin_shift, ymin),
+                    (xmax_base + ymax_shift, ymax),
+                    (xmin_base + ymax_shift, ymax),
+                ]
+                
+                polygon = patches.Polygon(
+                    vertices,
+                    closed=True,
+                    facecolor=color,
+                    linestyle='--',
+                    alpha=0.9,
+                    zorder=5
+                )
+                ax.add_patch(polygon)
+                
+            else:
+                # Rectangle logic
+                xmin = N_star - delta_star
+                xmax = N_star + delta_star
+                rect = patches.Rectangle(
+                    (xmin, ymin), 
+                    xmax - xmin, 
+                    ymax - ymin,
+                    facecolor=color,
+                    linestyle='--',
+                    alpha=0.9,
+                    zorder=5
+                )
+                ax.add_patch(rect)
+        
+        # Set labels and styling
+        ax.set_xlabel(ylabel_dict['N'], fontsize=16)
+        ax.set_ylabel(ylabel_dict['logL'], fontsize=16)
+        ax.grid(True, which="both", ls="--", alpha=0.5)
+        
+        # Set limits if we have ellipse data
+        if structure_ref["ellipse"] and first_ellipse_key in structure_ref["ellipse"]:
+            ellipse_data = structure_ref["ellipse"][first_ellipse_key]
+            ax.set_xlim(ellipse_data["N"][0], ellipse_data["N"][-1])
+        
+        ax.set_ylim(3.0, 15.5)
+        
+        # Add colorbar
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', location='right')
+        cbar.set_label('$\\displaystyle{\\alpha_{\\Gamma}}$', fontsize=16)
+        
+        # Save if requested
+        if save:
+            base_name = f"{output_prefix}_Case_{mod_pref}"
+            for fmt in formats:
+                fig.savefig(f"{base_name}.{fmt}", dpi=500, bbox_inches='tight')
+        
+        figures.append(fig)
+    
+    return figures
+
+
+def generate_rectangular_grid(
+        x_divisions=48,
+        y_divisions=48,
+        x_limits=(6, 70),
+        y_limits=(5, 11),
+        horizontal_spacing=0.0,
+        vertical_spacing=0.0,
+        horizontal_margin=2.0,
+        vertical_margin=0.15,
+        default_kgamma=0.09,
+        default_p=3.0,
+        slope=0.0,
+        norm_matrix=None
+    ):
+    
+    xmin, xmax = x_limits
+    ymin, ymax = y_limits
+
+    # Y-axis configuration
+    total_y_height = (ymax - ymin) - 2.0 * vertical_margin - (y_divisions - 1.0) * vertical_spacing
+    rect_height_y = total_y_height / y_divisions
+    
+    y_centers = np.linspace(
+        ymin + vertical_margin + rect_height_y / 2.0,
+        ymax - vertical_margin - rect_height_y / 2.0,
+        y_divisions
+    )
+
+    grid_parameters = []
+    
+    for j, y_center in enumerate(y_centers):
+        # Calculate displacement for this row
+        y_relative = y_center - ymin
+        total_displacement = slope * (ymax - ymin)  # Maximum displacement
+        
+        # RECALCULATE available space in X for this row
+        available_x_space = (xmax - xmin) - 2.0 * horizontal_margin - total_displacement
+        
+        # Recalculate width and spacing to maintain proportion
+        total_x_width = available_x_space - (x_divisions - 1.0) * horizontal_spacing
+        rect_width_x = total_x_width / x_divisions
+        
+        # Initial X position for this row (considering displacement)
+        x_start = xmin + horizontal_margin + (total_displacement * y_relative / (ymax - ymin))
+        
+        # X centers for this specific row
+        x_centers_row = np.linspace(
+            x_start + rect_width_x / 2.0,
+            x_start + rect_width_x / 2.0 + (x_divisions - 1.0) * (rect_width_x + horizontal_spacing),
+            x_divisions
+        )
+        
+        for i, x_center in enumerate(x_centers_row):
+            if norm_matrix is not None:
+                value = norm_matrix[y_divisions - 1 - j, i]
+                kgamma = default_kgamma * value
+            else:
+                kgamma = default_kgamma * ((-1) ** np.random.randint(1, 3))
+            
+            # NEW STRUCTURE
+            grid_parameters.append((
+                kgamma,
+                default_p,
+                x_center,           # (X center)
+                rect_width_x / 2.0,   # (half-width)
+                y_center,           # loglE (Y center)
+                rect_height_y / 2.0     # delta_loglE (half-height)
+            ))
+
+    return grid_parameters
+
+

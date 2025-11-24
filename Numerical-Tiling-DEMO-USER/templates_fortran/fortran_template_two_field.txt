@@ -1,0 +1,1324 @@
+program ps_decoherence_multi_fields
+
+! Evolving primordial fluctuations undergoing decoherence effects.
+! The code solves !!multi!! mode evolution and produces deformed power
+! spectrum for an arbitrary array of state accidents. Please cite
+! arxiv:2511.16801 if you use it in your research.
+
+!!!!!!!!!!!!!!!!!!
+
+
+    implicit none
+    
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+    ! This is exactly what you think it is...
+    real, parameter :: twopi = 6.28318530717958647692528676655900577Q0    
+    
+    !!!!!! Number of fields !!!!!!
+    integer, parameter :: c = 2
+    
+    ! size of the state vector
+    integer, parameter :: nvar = 2 + 2 * c + 4 * c * c
+    
+    ! Physical (kphys) and comoving (kcom) wavevectors
+    real :: kphys, kcom
+    ! timestep and counter to inject different modes
+    real :: dt, N_ref 
+    
+    ! different state vectors
+    real :: state(nvar), state_init(nvar), state_back(nvar)
+    
+    ! Dummy human-readable variables
+    
+    real :: phi(c), phi_dot(c), Hbl, ln_a
+    
+    real :: matrix_L_k(c,c), matrix_L_k_prime(c,c), matrix_Y_k(c,c), matrix_Z_k(c,c)
+    real :: vector_L_k(c*c), vector_L_k_prime(c*c), vector_Y_k(c*c), vector_Z_k(c*c)
+    
+    real :: matrix_Vprimeprime(c,c), matrix_Mass(c,c), matrix_Omega(c,c), matrix_Gauge(c,c)
+    real :: vector_Vprimeprime(c*c), vector_Mass(c*c), vector_Omega(c*c), vector_Gauge(c*c)
+    
+    real :: matrix_Decoherence(c,c)
+    real :: vector_Decoherence(c*c)
+    
+    ! Control variables
+    logical :: change, break, back, perturbations_flag
+    ! File and iteration counter
+    integer :: j, iter
+    
+    ! Integer labels for the Wigner ellipse evolution file and the power spectrum
+    integer :: unit_ellipse_wigner, unit_power_spectrum
+      
+    ! Name of the output files
+    character(len=100) :: filename_power_spectrum
+    character(len=100) :: filename_ellipse_wigner
+    
+    ! System mkdir
+    character(len=100) :: cmd
+    integer :: nout
+    
+    character(len=100) :: fmt
+    real, allocatable :: to_write(:)
+
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+    ! =====================
+    ! General  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================
+
+
+    ! Number of modes to produce the power spectrum
+    integer, parameter :: N_mod = {fortran_N_mod}
+    ! modes-step
+    real, parameter :: N_step = {fortran_N_step}
+    ! Initial N_inj
+    real, parameter :: N_initial_inj = {fortran_N_initial_inj}
+    
+    
+    ! Auxiliar output files
+    integer, parameter :: time_resolution = {fortran_time_resolution}
+
+    ! Set as .true. to produce Wigner ellipse evolution, and as .false. to skip it
+    logical :: ellipse = {fortran_ellipse}
+
+    integer, parameter :: ellipse_resolution = {fortran_ellipse_resolution}
+    
+    ! iter_parallel {fortran_part_iter_parallel}
+    integer, parameter :: iter_initial = {fortran_iter_initial}
+    integer, parameter :: iter_final = {fortran_iter_final}
+
+    
+    ! =====================
+    ! Perturbations  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================
+    
+    
+    ! Setting up the accidents
+    ! Case 0: No accidents
+    ! Case 1: Accidents
+    ! Case 0 is set by default (close system, without environment)
+    integer, parameter :: mod_pref = {fortran_mod_pref}
+
+    ! Setting up the accidents files
+    ! Case 0: k accidents
+    ! Case 1: N accidents
+    ! Case 1 is set by default (N-window)
+    integer, parameter :: mod_accident = {fortran_mod_accident}
+
+    ! =====================
+    ! Data  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================   
+    
+    ! nvar (state) + 5(aux) + 1 + c + c*c(Vphi, Vprime, Vprimeprime) + 4*c*c(M, Omega, A, Decoherence) + 1 (logL) + 1(F)  
+    nout = nvar + 8 + c + 5*c*c
+    
+    write(fmt, '(A,I0,A)') '(', nout, '(ES24.16E3,1X))'
+
+    ! =====================
+    ! Background_and_kphys  ⊂⁠(⁠◉⁠‿⁠◉⁠)⁠つ 
+    ! =====================
+    
+    
+    ! Initial background field conditions in human-readable form passed to State vector
+    
+    !background = (phi_1,...,phi_c,phi_dot_1,...,phi_dot_c)
+    
+    ! {fortran_potential_two_field}
+    phi(1) = {initial_phi_1_two_field}
+    phi(2) = {initial_phi_2_two_field}
+    phi_dot(1) = {initial_phi_dot_1_two_field}
+    phi_dot(2) = {initial_phi_dot_2_two_field}    
+    
+    ln_a = {initial_ln_a}
+    
+    ! kphys/H: {fortran_kphys} for kphys = cte (Mode injection)
+    kphys = {fortran_kphys}
+    
+    
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+    state_back(1:c:1) = phi
+    state_back(c+1:2*c:1) = phi_dot
+    Hbl = hubb_function(state_back)
+    state_back(2*c + 1) = Hbl
+    state_back(2*c + 2) = ln_a
+
+    ! Evolving backround from N = {initial_ln_a} and saving in state_back
+    back = .true.
+    
+    ! Turn off perturbations
+    perturbations_flag = .false.
+
+    ! Evolution loop to converge to the attractor (end in N = {fortran_N_initial_inj})
+    do while (back)
+        call gl8(state_back, 0.1, kcom, N_ref, iter, perturbations_flag)
+        if (state_back(2*c + 2) >= N_initial_inj) then
+            back = .false.
+        end if
+    end do
+
+    ! Mkdir cmd
+    write(cmd, '("mkdir -p Evolution_", I3.3)') mod_pref
+    call system(cmd)
+
+    ! Open file for power spectrum & ellipse
+    unit_power_spectrum = 20
+    unit_ellipse_wigner = 30
+    
+    
+    ! Open file for dynamics of Power Spectrum
+    write(filename_power_spectrum, '("Evolution_", I3.3, "/Power_Spectrum_PS_{fortran_part_iter_parallel}_", I3.3, ".dat")') mod_pref, mod_pref
+    
+    open(unit=unit_power_spectrum, file=filename_power_spectrum, status="unknown", action="write", form="formatted")
+    
+    ! Setting up the Kphys and timestep
+    kphys = kphys * state_back(2*c + 1)
+    dt = twopi * (1.0/kphys) / 60.0
+    
+    ! Calling background variables
+    state_init = state_back   
+    
+    ! Loop to produce the power spectrum from N_mod modes
+    do iter = iter_initial, iter_final        
+        N_ref = N_initial_inj + N_step * iter
+        unit_ellipse_wigner = unit_ellipse_wigner + 1
+        
+        change = .true.
+        break = .true.
+        perturbations_flag = .false.
+        
+        ! Open file for dynamics of the Wigner ellipse
+        if (ellipse .and. mod(iter, ellipse_resolution) == 0) then
+            write(filename_ellipse_wigner, '("Evolution_", I3.3, "/Ellipse_P", I3.3, "_Iter_", I6.6, ".dat")') mod_pref, mod_pref, iter
+            open(unit=unit_ellipse_wigner, file=filename_ellipse_wigner, status="unknown", action="write", form="formatted")
+        end if
+
+        ! 🔹 Evolving the background up to N_ref e-folds...
+        state = state_init
+        do while (change)
+            call gl8(state, dt / 0.05, kcom, N_ref, iter, perturbations_flag)
+            if (state(2*c+2) >= N_ref) then
+                ! save state vector
+                state_init = state
+                ! Compute conformal k and set-up initial perturbations in
+                ! Minkowski vacuum
+                kcom = kphys * exp(state_init(2*c + 2))  ! Conformal mode calculation
+    
+                matrix_L_k = Initial_L_function(state_init, kcom)
+                matrix_L_k_prime = 0.0d0
+                matrix_Y_k = 0.0d0
+                matrix_Z_k = Initial_Z_function(state_init, kcom)
+
+                vector_L_k = recover_vector(matrix_L_k)
+                vector_L_k_prime = 0.0d0
+                vector_Y_k = 0.0d0
+                vector_Z_k = recover_vector(matrix_Z_k)
+
+                ! Mukhanov-Sasaki state vector
+                
+                state_init(2*c + 2 + 0*c*c + 1:2*c + 2 + 1*c*c:1) = vector_L_k
+                state_init(2*c + 2 + 1*c*c + 1:2*c + 2 + 2*c*c:1) = vector_L_k_prime
+                state_init(2*c + 2 + 2*c*c + 1:2*c + 2 + 3*c*c:1) = vector_Y_k
+                state_init(2*c + 2 + 3*c*c + 1:2*c + 2 + 4*c*c:1) = vector_Z_k
+                
+                ! End evolution
+                change = .false.
+                ! Turn on perturbation-evolution
+                perturbations_flag = .true.
+            end if
+        end do
+
+        ! 🔹 Main evolution loop up to the end of inflation (ε >= 1.0)
+        state = state_init
+        j = 0
+        do while (break)
+            ! Reducing time step to evolve squeezed modes 0.05
+            call gl8(state, dt / 0.05, kcom, N_ref, iter, perturbations_flag)
+            
+            ! Store ellipse evolution every {fortran_time_resolution} steps
+            if (ellipse .and. mod(iter, ellipse_resolution) == 0 .and. mod(j, time_resolution) == 0) then  
+            
+                matrix_Vprimeprime = Vprimeprime(state)
+                matrix_Mass = Mass_squared_function(state)
+                matrix_Omega = Omega_squared_function(state, kcom)
+                matrix_Gauge = Gauge_squared_function(state, kcom)
+                matrix_Decoherence = Decoherence_squared_function(mod_pref, state, kcom, N_ref, iter)
+                
+                vector_Vprimeprime = recover_vector(matrix_Vprimeprime)
+                vector_Mass = recover_vector(matrix_Mass)
+                vector_Omega = recover_vector(matrix_Omega)
+                vector_Gauge = recover_vector(matrix_Gauge)
+                vector_Decoherence = recover_vector(matrix_Decoherence)
+                
+            
+                ! Save and write state vector
+                allocate(to_write(nout))
+                ! state
+                to_write(1:nvar:1) = state
+                
+                to_write(nvar + 1: nvar + 1:1) = epsilon_inflation(state)
+                to_write(nvar + 2: nvar + 2:1) = eta_inflation(state)
+                to_write(nvar + 3: nvar + 3:1) = hubb_function(state)
+                to_write(nvar + 4: nvar + 4:1) = kcom
+                to_write(nvar + 5: nvar + 5:1) = kphys
+                
+                to_write(nvar + 6: nvar + 6:1) = Vphi(state)
+                to_write(nvar + 7: nvar + 6 + c:1) = Vprime(state)
+                to_write(nvar + 7 + c : nvar + 6 + c + c*c:1) = vector_Vprimeprime
+                
+                to_write(nvar + 7 + c + c*c: nvar + 6 + c + 2*c*c:1) = vector_Mass
+                to_write(nvar + 7 + c + 2*c*c: nvar + 6 + c + 3*c*c:1) = vector_Omega
+                to_write(nvar + 7 + c + 3*c*c: nvar + 6 + c + 4*c*c:1) = vector_Gauge
+                to_write(nvar + 7 + c + 4*c*c: nvar + 6 + c + 5*c*c:1) = vector_Decoherence
+                
+                to_write(nvar + 7 + c + 5*c*c: nvar + 7 + c + 5*c*c:1) = logL_function(state, kcom)
+                
+                to_write(nvar + 8 + c + 5*c*c: nvar + 8 + c + 5*c*c:1) = source_open(mod_pref, state, kcom, N_ref, iter)
+                ! write
+                write(unit_ellipse_wigner, fmt) to_write
+                deallocate(to_write)
+            
+            
+            end if
+
+            j = j + 1
+            
+            if (epsilon_inflation(state) >= 1.0) then
+                ! Exit when inflation ends
+                break = .false.
+            end if
+
+        end do
+
+        matrix_Vprimeprime = Vprimeprime(state)
+        matrix_Mass = Mass_squared_function(state)
+        matrix_Omega = Omega_squared_function(state, kcom)
+        matrix_Gauge = Gauge_squared_function(state, kcom)
+        matrix_Decoherence = Decoherence_squared_function(mod_pref, state, kcom, N_ref, iter)
+
+        vector_Vprimeprime = recover_vector(matrix_Vprimeprime)
+        vector_Mass = recover_vector(matrix_Mass)
+        vector_Omega = recover_vector(matrix_Omega)
+        vector_Gauge = recover_vector(matrix_Gauge)
+        vector_Decoherence = recover_vector(matrix_Decoherence)
+        
+        ! Save and write state vector
+        allocate(to_write(nout))
+                ! state
+                to_write(1:nvar:1) = state
+                
+                to_write(nvar + 1: nvar + 1:1) = epsilon_inflation(state)
+                to_write(nvar + 2: nvar + 2:1) = eta_inflation(state)
+                to_write(nvar + 3: nvar + 3:1) = hubb_function(state)
+                to_write(nvar + 4: nvar + 4:1) = kcom
+                to_write(nvar + 5: nvar + 5:1) = kphys
+                
+                to_write(nvar + 6: nvar + 6:1) = Vphi(state)
+                to_write(nvar + 7: nvar + 6 + c:1) = Vprime(state)
+                to_write(nvar + 7 + c : nvar + 6 + c + c*c:1) = vector_Vprimeprime
+                
+                to_write(nvar + 7 + c + c*c: nvar + 6 + c + 2*c*c:1) = vector_Mass
+                to_write(nvar + 7 + c + 2*c*c: nvar + 6 + c + 3*c*c:1) = vector_Omega
+                to_write(nvar + 7 + c + 3*c*c: nvar + 6 + c + 4*c*c:1) = vector_Gauge
+                to_write(nvar + 7 + c + 4*c*c: nvar + 6 + c + 5*c*c:1) = vector_Decoherence
+                
+                to_write(nvar + 7 + c + 5*c*c: nvar + 7 + c + 5*c*c:1) = logL_function(state, kcom)
+                
+                to_write(nvar + 8 + c + 5*c*c: nvar + 8 + c + 5*c*c:1) = source_open(mod_pref, state, kcom, N_ref, iter)
+                ! write
+        write(unit_power_spectrum, fmt) to_write
+        deallocate(to_write)
+        
+        ! Close file and write
+        if (ellipse .and. mod(iter, ellipse_resolution) == 0) then
+            close(unit=unit_ellipse_wigner)
+        end if
+        write(*,*) "Simulation ends for N_ref (injected) = ", N_ref
+
+        ! Reset state
+        state = state_init
+    end do
+
+    ! Close power spectrum file
+    close(unit=unit_power_spectrum)
+    
+    
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! End of the main code
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    
+     
+contains 
+
+
+!!!!!! TRANSFORM VECTOR/MATRIX !!!!!!
+
+
+    ! 🔹 Vectors variables calculated from the matrices variables:
+    function recover_vector(matrix)
+        implicit none
+        real, intent(in) :: matrix(c,c)
+        real :: recover_vector(c*c)
+        integer :: i, j, k
+        recover_vector = 0.0d0
+        k = 0
+        do i = 1, c
+            do j = 1, c
+                k = k + 1
+                recover_vector(k) = matrix(i,j)
+            end do
+        end do
+    end function recover_vector
+    
+    
+!!!!!! TRANSFORM MATRIX TO VECTOR !!!!!!
+
+
+    ! 🔹 Matrix variables calculated from the vectors variables:
+    function recover_matrix(vector)
+        implicit none
+        real, intent(in) :: vector(c*c)
+        real :: recover_matrix(c,c)
+        integer :: i, j, k
+        recover_matrix = 0.0d0
+        k = 0
+        do i = 1, c
+            do j = 1, c
+                k = k + 1
+                recover_matrix(i,j) = vector(k)
+            end do
+        end do
+    end function recover_matrix
+    
+
+!!!!!! Matrices Operations !!!!!!
+
+    
+    ! 🔹 Inverse Matrix
+    function Inverse_Matrix(A)
+        implicit none
+        real, intent(in) :: A(c, c)
+        real :: Inverse_Matrix(c, c)
+        real :: L(c, c), U(c, c), P(c, c)
+        real :: Identity(c, c), temp(c)
+        integer :: i, j, k, max_row
+        real :: factor, pivot
+        L = 0.0d0
+        U = A
+        P = 0.0d0
+        Identity = 0.0d0
+        Inverse_Matrix = 0.0d0
+        do i = 1, c
+            Identity(i, i) = 1.0d0
+            P(i, i) = 1.0d0
+        end do
+        do k = 1, c
+            pivot = abs(U(k,k))
+            max_row = k
+            do i = k + 1, c
+                if (abs(U(i,k)) > pivot) then
+                    pivot = abs(U(i,k))
+                    max_row = i
+                end if
+            end do
+            if (max_row /= k) then
+                temp = U(k, :)
+                U(k, :) = U(max_row, :)
+                U(max_row, :) = temp
+
+                temp = P(k, :)
+                P(k, :) = P(max_row, :)
+                P(max_row, :) = temp
+
+                if (k > 1) then
+                    temp = L(k, 1:k-1)
+                    L(k, 1:k-1) = L(max_row, 1:k-1)
+                    L(max_row, 1:k-1) = temp
+                end if
+            end if
+            do i = k + 1, c
+                factor = U(i, k) / U(k, k)
+                L(i, k) = factor
+                U(i, :) = U(i, :) - factor * U(k, :)
+            end do
+        end do
+        do i = 1, c
+            L(i, i) = 1.0d0
+        end do
+        do j = 1, c
+            temp = matmul(P, Identity(:, j))
+            do i = 1, c
+                do k = 1, i - 1
+                    temp(i) = temp(i) - L(i, k) * temp(k)
+                end do
+            end do
+            do i = c, 1, -1
+                do k = i + 1, c
+                    temp(i) = temp(i) - U(i, k) * temp(k)
+                end do
+                temp(i) = temp(i) / U(i, i)
+            end do
+            Inverse_Matrix(:, j) = temp
+        end do
+    end function Inverse_Matrix
+
+
+!!!!!! Potential, derivatives and auxiliary functions !!!!!!
+
+
+    ! 🔹 Hubble parameter for c fields
+    function hubb_function(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: hubb_function
+        hubb_function = sqrt((kin_energy_fields(y) + Vphi(y)) / 3.0d0)
+    end function hubb_function
+    
+    ! 🔹 Kinetic energy for c fields
+    function kin_energy_fields(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: phi_dot(c)
+        real :: kin_energy_fields
+        integer :: i
+        phi_dot= y(c+1:2*c:1)
+        kin_energy_fields = 0.0d0        
+        do i = 1, c
+            kin_energy_fields = kin_energy_fields + phi_dot(i) * phi_dot(i)
+        end do
+        kin_energy_fields = 0.5d0 * kin_energy_fields  ! (1/2) sum_i phi_dot(i)^2
+    end function kin_energy_fields    
+    
+    ! 🔹 V(phi) for c fields
+    function Vphi(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: Vphi
+        real :: phi(c)
+        
+        phi = y(1:c:1)
+        Vphi = 0.0d0
+        
+        ! {fortran_potential_two_field}
+        Vphi = {fortran_Vphi_two_field}
+   
+    end function Vphi
+    
+    ! 🔹 V'(phi) = ∂V/∂phi_a for c fields
+    function Vprime(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: Vprime(c)
+        real :: phi(c)
+        
+        phi = y(1:c:1)        
+        Vprime = 0.0d0    
+        
+        ! {fortran_potential_two_field}              
+        Vprime(1) = {fortran_Vprime_1_two_field}
+        Vprime(2) = {fortran_Vprime_2_two_field} 
+        
+    end function Vprime
+    
+    ! 🔹 V''(phi) = ∂²V/∂phi_a∂phi_b for c fields
+    function Vprimeprime(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: Vprimeprime(c,c)
+        real :: phi(c)
+        
+        phi = y(1:c:1)        
+        Vprimeprime = 0.0d0    
+        
+        ! {fortran_potential_two_field}
+        Vprimeprime(1,1) = {fortran_Vprimeprime_11_two_field}
+        Vprimeprime(1,2) = {fortran_Vprimeprime_12_two_field}
+        Vprimeprime(2,1) = Vprimeprime(1,2)
+        Vprimeprime(2,2) = {fortran_Vprimeprime_22_two_field}   
+                
+    end function Vprimeprime
+    
+    ! 🔹 Epsilon parameter for c fields
+    function epsilon_inflation(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: epsilon_inflation
+        real :: Hubble
+        real :: kin_energy
+        kin_energy = kin_energy_fields(y)  ! (1/2) sum_i phi_dot(i)^2
+        Hubble = y(2*c + 1)
+        epsilon_inflation = kin_energy / (Hubble*Hubble)
+    end function epsilon_inflation
+    
+    ! 🔹 Eta parameter for c fields
+    function eta_inflation(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real :: eta_inflation
+        real :: Hubble
+        real :: kin_energy
+        real :: eps_infl
+        real :: phi_dot(c)
+        real :: Vp(c)
+        integer :: i
+        Vp = Vprime(y)
+        phi_dot= y(c+1:2*c:1)
+        kin_energy = kin_energy_fields(y)  ! (1/2) sum_i phi_dot(i)^2
+        Hubble = y(2*c + 1)
+        eps_infl = epsilon_inflation(y)
+        eta_inflation = 0.0d0
+        do i = 1, c
+            eta_inflation = eta_inflation + phi_dot(i) * Vp(i)
+        end do
+        eta_inflation = 2.0d0 * eps_infl - 6.0d0 - eta_inflation / (eps_infl * Hubble * Hubble * Hubble)
+    end function eta_inflation
+
+    ! 🔹 Log(l) function
+    function logL_function(y, kcom)
+        real, intent(in) :: y(nvar), kcom
+        real logL_function, ln_a
+        ln_a = y(2*c+2) 
+        logL_function = y(2*c+2) - log(kcom)
+    end function logL_function
+
+
+!!!!!! MATRICES FOR INTERACTIONS !!!!!!
+
+
+    ! 🔹 Mass-squared matrix for c fields    
+    function Mass_squared_function(y)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real Mass_squared_function(c,c)
+        real phi_dot(c), kin_energy, H        
+        real :: dVdphi(c), d2Vdphidphi(c, c)
+        integer a, b
+        phi_dot= y(c+1:2*c:1)
+        H = y(2*c + 1)
+        dVdphi = Vprime(y)
+        d2Vdphidphi = Vprimeprime(y)
+        kin_energy = kin_energy_fields(y)        
+        Mass_squared_function = 0.0d0        
+        ! Build only the lower triangular part and reflect to upper
+        do a = 1, c
+            do b = 1, a
+                Mass_squared_function(a,b) = d2Vdphidphi(a,b) + &
+                                    (phi_dot(b)*dVdphi(a) + phi_dot(a)*dVdphi(b))/H + &
+                                    3.0d0 * phi_dot(a) * phi_dot(b) - &
+                                    (phi_dot(a) * phi_dot(b) * kin_energy) / (H*H)
+                if (a /= b) Mass_squared_function(b,a) = Mass_squared_function(a,b)
+            end do
+        end do
+    end function Mass_squared_function
+
+    ! 🔹 Omega-squared matrix for the fields c
+    function Omega_squared_function(y, kcom)
+        implicit none
+        real, intent(in) :: y(nvar)        
+        real, intent(in) :: kcom        
+        real Omega_squared_function(c,c)        
+        real :: scale_f, H, kin_energy
+        real :: Mass(c, c)
+        integer :: a, b        
+        real :: delta_ab        
+        scale_f = exp(y(2*c + 2))
+        H = y(2*c + 1)
+        Mass = Mass_squared_function(y)        
+        kin_energy = kin_energy_fields(y)        
+        ! Build only the lower triangular part and reflect to upper
+        Omega_squared_function = 0.0d0
+        do a = 1, c
+            do b = 1, a
+                delta_ab = merge(1.0d0, 0.0d0, a == b)
+                Omega_squared_function(a,b) = (kcom*kcom + scale_f*scale_f*(-2.0d0*H*H + kin_energy))*delta_ab + scale_f*scale_f*Mass(a,b) 
+                if (a /= b) Omega_squared_function(b,a) = Omega_squared_function(a,b)
+            end do
+        end do        
+    end function Omega_squared_function
+
+
+!!!!!! DINAMICAL MATRICES !!!!!!
+
+
+    ! 🔹 Builds the pre-motion equation
+    function Motion_squared_function(y, kcom)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        
+        real :: Motion_squared_function(c,c)
+        real :: Omega(c,c)
+        
+        real :: vector_L_k(c*c), vector_L_k_prime(c*c)
+        real :: vector_Y_k(c*c), vector_Z_k(c*c)
+        
+        real :: matrix_L_k(c,c), matrix_L_k_prime(c,c)
+        real :: matrix_Y_k(c,c), matrix_Z_k(c,c)
+
+        real :: matrix_Linv_k(c,c), temp(c,c)
+        
+        Omega = Omega_squared_function(y, kcom)
+        
+        vector_L_k = y(2 + 2*c + 1: 2 + 2*c + c*c:1)
+        vector_L_k_prime = y(2 + 2*c + c*c + 1: 2 + 2*c + 2*c*c:1)
+        vector_Y_k = y(2 + 2*c + 2*c*c + 1: 2 + 2*c + 3*c*c:1)
+        vector_Z_k = y(2 + 2*c + 3*c*c + 1: 2 + 2*c + 4*c*c:1)
+        
+        matrix_L_k = recover_matrix(vector_L_k)
+        matrix_L_k_prime = recover_matrix(vector_L_k_prime)
+        matrix_Y_k = recover_matrix(vector_Y_k) 
+        matrix_Z_k = recover_matrix(vector_Z_k)
+        
+        matrix_Linv_k = Inverse_Matrix(matrix_L_k)
+        
+        Motion_squared_function = 0.0d0
+        
+        temp = 2.0d0 * matmul( matrix_Linv_k , matmul( matrix_L_k_prime , matrix_Y_k ) )
+        temp = temp + matmul( matrix_Y_k , matrix_Y_k ) - matrix_Z_k
+        temp = temp + matmul( matrix_Linv_k , matmul( Omega , matrix_L_k ) )
+        
+        Motion_squared_function = temp
+        
+    end function Motion_squared_function
+    
+    ! 🔹 Gauge-squared-antisymmetric matrix for c fields    
+    function Gauge_squared_function(y, kcom)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: Gauge_squared_function(c,c)
+        real :: temp(c,c)
+        
+        integer :: i, j
+        
+        temp = Motion_squared_function(y, kcom)
+        
+        Gauge_squared_function = 0.0d0
+                
+        do i = 1, c -1
+            do j = i + 1, c
+                Gauge_squared_function(i,j) = -temp(i, j)
+                Gauge_squared_function(j,i) = -1.0d0 * Gauge_squared_function(i,j)
+            end do
+        end do
+    end function Gauge_squared_function
+    
+    ! 🔹 Second derivative of L-squared matrix for c fields	
+    function Derivative_Lprime_k_function(y, kcom)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: Derivative_Lprime_k_function(c,c)
+        
+        real :: vector_L_k(c*c)
+        real :: matrix_L_k(c,c)
+        
+        real :: temp_motion(c,c)
+        real :: temp_gauge(c,c)
+        
+        vector_L_k = y(2 + 2*c + 1: 2 + 2*c + c*c:1)
+        matrix_L_k = recover_matrix(vector_L_k)
+        
+        Derivative_Lprime_k_function = 0.0d0
+        
+        temp_motion = Motion_squared_function(y, kcom)
+        temp_gauge = Gauge_squared_function(y, kcom)
+        
+        Derivative_Lprime_k_function = -1.0d0 * matmul(matrix_L_k, temp_motion + temp_gauge)
+        
+    end function Derivative_Lprime_k_function
+    
+    ! 🔹 Derivative of Y-squared matrix for c fields
+    function Derivative_Y_k_function(y, kcom)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: Derivative_Y_k_function(c,c)
+        real :: temp(c,c)
+        
+        Derivative_Y_k_function = 0.0d0
+        
+        temp = Gauge_squared_function(y, kcom)
+        Derivative_Y_k_function = temp
+        
+    end function Derivative_Y_k_function
+
+    ! 🔹 Derivative of Z-squared matrix for c fields
+    function Derivative_Z_k_function(y, kcom)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        
+        real :: Derivative_Z_k_function(c,c)
+        
+        real :: vector_L_k(c*c), vector_L_k_prime(c*c)
+        real :: vector_Y_k(c*c), vector_Z_k(c*c)
+        
+        real :: matrix_L_k(c,c), matrix_L_k_prime(c,c)
+        real :: matrix_Y_k(c,c), matrix_Z_k(c,c)
+
+        real :: matrix_Linv_k(c,c)
+        
+        real :: temp(c,c)
+        
+        vector_L_k = y(2 + 2*c + 1: 2 + 2*c + c*c:1)
+        vector_L_k_prime = y(2 + 2*c + c*c + 1: 2 + 2*c + 2*c*c:1)
+        vector_Y_k = y(2 + 2*c + 2*c*c + 1: 2 + 2*c + 3*c*c:1)
+        vector_Z_k = y(2 + 2*c + 3*c*c + 1: 2 + 2*c + 4*c*c:1)
+        
+        matrix_L_k = recover_matrix(vector_L_k)
+        matrix_L_k_prime = recover_matrix(vector_L_k_prime)
+        matrix_Y_k = recover_matrix(vector_Y_k) 
+        matrix_Z_k = recover_matrix(vector_Z_k)
+        
+        matrix_Linv_k = Inverse_Matrix(matrix_L_k)
+        
+        Derivative_Z_k_function = 0.0d0
+        temp = 0.0d0
+        
+        temp = -1.0d0 * matmul( matrix_Y_k , matrix_Z_k )
+        temp = temp -2.0d0 * matmul( matmul( matrix_Linv_k , matrix_L_k_prime ) , matrix_Z_k ) 
+        
+        Derivative_Z_k_function = temp + transpose(temp)
+        
+    end function Derivative_Z_k_function
+
+
+!!!!!! ACCIDENTS !!!!!!
+
+
+    ! 🔹 Filter Center Hann Function    
+    pure function Hann_function(x, L) result(H)
+        real, intent(in) :: x, L
+        real H
+        
+        if (x <= -L/2.0 .or. x >= L/2.0) then
+            H = 0.0
+        else
+            H = cos(0.5 * twopi * x / L)*cos(0.5 * twopi * x / L)
+        end if
+    
+    end function Hann_function
+    
+    ! 🔹 Taper Center Hann Function    
+    pure function Hann_Taper_Center(x, x_ref, x_delta) result(H)
+        real, intent(in) :: x, x_ref, x_delta
+        real ep1, ep2, xm1, xm2, x1, x2, L1, L2, H
+        ! It can only be between 0 and 1 (open), 0.5 is recommended
+        
+        ep1 = {fortran_transition}
+        ep2 = {fortran_transition}
+        
+        xm1 = x_ref - ep1 * x_delta
+        xm2 = x_ref + ep2 * x_delta
+        
+        x1 = x_ref - x_delta
+        x2 = x_ref + x_delta
+        
+        L1 = 2.0 * x_delta * (1.0 - ep1)
+        L2 = 2.0 * x_delta * (1.0 - ep2)
+        
+        if (x <= x1 .or. x >= x2) then
+            H = 0.0
+        else if (x > x1 .and. x < xm1) then
+            H = Hann_function(x - xm1, L1)
+        else if (x >= xm1 .and. x <= xm2) then
+            H = 1.0
+        else if (x > xm2 .and. x < x2) then
+            H = Hann_function(x - xm2, L2)
+        end if
+
+    end function Hann_Taper_Center
+    
+    ! 🔹  Window for the accident (in k)s
+    function Window_Ks(kcom, N_ref, N_star, delta_star)
+        real, intent(in) :: kcom, N_ref, N_star, delta_star
+        real Window_Ks, N_inj
+        
+        N_inj = N_ref
+        ! N: inj
+        Window_Ks = Hann_Taper_Center(N_inj, N_star, delta_star)
+    end function Window_Ks
+    
+    ! 🔹  Window for the accident (in N)s
+    function Window_Ns(y, kcom, N_star, delta_star)
+        real, intent(in) :: kcom, N_star, delta_star
+        real, intent(in) :: y(nvar)
+        real Window_Ns, N_efold
+        
+        N_efold = y(2*c + 2)
+        
+        Window_Ns = Hann_Taper_Center(N_efold, N_star, delta_star)
+    end function Window_Ns
+
+    ! 🔹  Window for the accident (in ln(ell)): logLs
+    function Window_logLs(y, kcom, loglE, delta_loglE)
+        real, intent(in) :: y(nvar), kcom, loglE, delta_loglE
+        real Window_logLs, log_length_phys
+        
+        log_length_phys = logL_function(y, kcom)
+        Window_logLs = Hann_Taper_Center(log_length_phys, loglE, delta_loglE)        
+    end function Window_logLs
+
+    ! 🔹  Amplitude for the accident
+    function Amplitude_accident(y, kcom, kgamma, p)
+        real, intent(in) :: y(nvar), kcom, kgamma, p
+        real Amplitude_accident, e_fold, Hubble 
+
+        e_fold = y(2*c + 2); Hubble = y(2*c + 1)
+        
+        Amplitude_accident = sign(1.0, kgamma) * kgamma * kgamma * kcom * kcom * &
+                   exp((p - 3.0) * e_fold)    
+    end function Amplitude_accident
+
+    ! 🔹  Amplitude for the accident
+    function Accident_Source(y, kgamma, p, kcom, N_ref, N_star, delta_star, loglE, delta_loglE)
+        real, intent(in) :: y(nvar), kgamma, p, kcom, N_ref, N_star, delta_star, loglE, delta_loglE
+        real Accident_Source
+        
+        select case (mod_accident)
+            case (0)  ! N accidents
+                Accident_Source = Window_Ks(kcom, N_ref, N_star, delta_star) * Window_logLs(y, kcom, loglE, delta_loglE) * Amplitude_accident(y, kcom, kgamma, p)
+            case (1)  ! k accidents
+                Accident_Source = Window_Ns(y, kcom, N_star, delta_star) * Window_logLs(y, kcom, loglE, delta_loglE) * Amplitude_accident(y, kcom, kgamma, p)
+            case default
+                print *, "¡Error! mod_accident must be 0, 1"
+                stop
+        end select
+
+    end function Accident_Source
+    
+    ! 🔹 Source term in equations of motion (cases)
+    function source_open(mod_pref, y, kcom, N_ref, iter_inj) result(source)
+        integer, intent(in) :: mod_pref
+        integer, intent(in) :: iter_inj
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        real e_fold, source, Hubble
+        real int{fortran_mod_pref}
+        
+        e_fold = y(2*c + 2); Hubble = y(2*c + 1)
+        int{fortran_mod_pref} = 0.0
+        
+        !Accident_Source(y, kgamma, p, kcom, N_ref, N_star, delta_star, loglE, delta_loglE)
+        
+        include '../int{fortran_mod_pref}_block_file/int{fortran_mod_pref}_summary.inc'
+        source = int{fortran_mod_pref}
+        
+    end function source_open
+    
+    ! 🔹 Decoherence-corrections matrix for c fields    
+    function Decoherence_squared_function(mod_pref, y, kcom, N_ref, iter_inj)
+        implicit none
+        integer, intent(in) :: mod_pref
+        integer, intent(in) :: iter_inj
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        
+        real :: Decoherence_squared_function(c,c)
+        integer :: i, j
+        
+        real :: vector_L_k(c*c)
+        real :: matrix_L_k(c,c)
+        real :: matrix_Linv_k(c,c)
+        
+        real :: vector_interaction(c)
+        real :: vector_decoherence(c)
+        real :: temp(c,c)
+        real :: temp_source
+        
+        real :: phi_dot(c), alpha(c)
+        
+        phi_dot = y(c+1:2*c:1)
+        
+        vector_L_k = y(2 + 2*c + 1: 2 + 2*c + c*c:1)
+        matrix_L_k = recover_matrix(vector_L_k)
+        matrix_Linv_k = Inverse_Matrix(matrix_L_k)
+        
+        vector_interaction = 0.0d0
+        temp = 0.0d0
+        temp_source = 0.0d0
+        
+        temp_source = source_open(mod_pref, y, kcom, N_ref, iter_inj)
+        
+        
+        ! {fortran_interaction_two_field}
+        alpha(1) = {fortran_alpha_1_two_field}
+        alpha(2) = {fortran_alpha_2_two_field}
+        vector_interaction(1) = {fortran_interaction_1_two_field}
+        vector_interaction(2) = {fortran_interaction_2_two_field}
+        
+        
+        vector_decoherence = matmul(matrix_Linv_k, vector_interaction)
+        
+        do i = 1, c
+            do j = 1, c
+                temp(i,j) = vector_decoherence(i) * vector_decoherence(j)
+            end do
+        end do
+        
+        temp = temp + transpose(temp)
+        
+        Decoherence_squared_function = temp * temp_source * 0.5d0
+    end function Decoherence_squared_function
+    
+    
+!!!!!! EVOLUTION !!!!!!
+
+
+    ! 🔹 8th-order Gauss-Legendre integrator
+    subroutine gl8(y, dt, kcom, N_ref, iter_inj, perturbations_flag)
+        integer, parameter :: s = 4, n = nvar
+        real y(n), g(n,s), dt; integer i, k
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        integer, intent(in) :: iter_inj
+        logical, intent(in) :: perturbations_flag
+                
+        ! Butcher tableau for 8th order Gauss-Legendre method
+        real, parameter :: a(s,s) = reshape((/ &
+                 0.869637112843634643432659873054998518Q-1, -0.266041800849987933133851304769531093Q-1, &
+                 0.126274626894047245150568805746180936Q-1, -0.355514968579568315691098184956958860Q-2, &
+                 0.188118117499868071650685545087171160Q0,   0.163036288715636535656734012694500148Q0,  &
+                -0.278804286024708952241511064189974107Q-1,  0.673550059453815551539866908570375889Q-2, &
+                 0.167191921974188773171133305525295945Q0,   0.353953006033743966537619131807997707Q0,  &
+                 0.163036288715636535656734012694500148Q0,  -0.141906949311411429641535704761714564Q-1, &
+                 0.177482572254522611843442956460569292Q0,   0.313445114741868346798411144814382203Q0,  &
+                 0.352676757516271864626853155865953406Q0,   0.869637112843634643432659873054998518Q-1 /), (/s,s/))
+        real, parameter ::   b(s) = (/ &
+                 0.173927422568726928686531974610999704Q0,   0.326072577431273071313468025389000296Q0,  &
+                 0.326072577431273071313468025389000296Q0,   0.173927422568726928686531974610999704Q0  /)
+        
+        ! iterate trial steps
+        g = 0.0; do k = 1,16
+                g = matmul(g,a)
+                do i = 1,s
+                        call evalf(y + g(:,i)*dt, g(:,i), kcom, N_ref, iter_inj, perturbations_flag)
+                end do
+        end do
+        ! update the solution
+        y = y + matmul(g,b)*dt
+    end subroutine gl8
+    
+    ! 🔹 Equations of motion
+    subroutine evalf(y, dydx, kcom, N_ref, iter_inj, perturbations_flag)
+        real, intent(in) :: y(nvar)
+        real, intent(out) :: dydx(nvar)
+        real, intent(in) :: kcom
+        real, intent(in) :: N_ref
+        integer, intent(in) :: iter_inj
+        logical, intent(in) :: perturbations_flag
+        
+        real :: kin_energy, scale_f
+        real :: dVdphi(c)
+        
+        integer :: i
+        
+        real :: L_vector_derivative_evalf(c*c), Lprime_vector_derivative_evalf(c*c)
+        real :: Y_vector_derivative_evalf(c*c), Z_vector_derivative_evalf(c*c)
+        real :: Decoherence_vector_evalf(c*c)
+        
+        real :: L_matrix_derivative_evalf(c,c), Lprime_matrix_derivative_evalf(c,c)
+        real :: Y_matrix_derivative_evalf(c,c), Z_matrix_derivative_evalf(c,c)
+        real :: Decoherence_matrix_evalf(c,c)
+
+        
+        dydx = 0.0d0
+                
+        ! ---------- Background ----------
+        dVdphi = Vprime(y)
+        kin_energy = kin_energy_fields(y)
+        do i = 1, c
+            ! dphi_(i)/dt = phi_dot_(i) 
+            dydx(i) = y(c + i)
+            ! dphidot_(i)/dt = -3*H*phidot_(i) - dVdphi_(i)
+            dydx(c + i) = -3.0d0 * y(2*c + 1) * y(c + i) - dVdphi(i)
+        end do
+        ! dH/dt = -(phidot_(1)**2 + phidot_(2)**2 + ... + phidot_(c)**2)/2
+        dydx(2*c + 1) = -kin_energy
+        ! d ln_a/dt = H
+        dydx(2*c + 2) = y(2*c + 1)
+        
+        ! ---------- Perturbations ----------
+
+        if (perturbations_flag) then
+        
+        Lprime_matrix_derivative_evalf = Derivative_Lprime_k_function(y, kcom)
+        Y_matrix_derivative_evalf = Derivative_Y_k_function(y, kcom)
+        Z_matrix_derivative_evalf = Derivative_Z_k_function(y, kcom)
+        Decoherence_matrix_evalf = Decoherence_squared_function(mod_pref, y, kcom, N_ref, iter_inj)
+        
+        L_vector_derivative_evalf = y(2 + 2*c + c*c + 1: 2 + 2*c + 2*c*c: 1)
+        Lprime_vector_derivative_evalf = recover_vector(Lprime_matrix_derivative_evalf)
+        Y_vector_derivative_evalf = recover_vector(Y_matrix_derivative_evalf)
+        Z_vector_derivative_evalf = recover_vector(Z_matrix_derivative_evalf)
+        Decoherence_vector_evalf = recover_vector(Decoherence_matrix_evalf)
+        
+        dydx(2 + 2*c + 1: 2 + 2*c + c*c: 1) = L_vector_derivative_evalf*exp(-y(2*c+2))
+        dydx(2 + 2*c + c*c + 1: 2 + 2*c + 2*c*c: 1) = Lprime_vector_derivative_evalf*exp(-y(2*c+2))
+        dydx(2 + 2*c + 2*c*c + 1: 2 + 2*c + 3*c*c: 1) = Y_vector_derivative_evalf*exp(-y(2*c+2))
+        dydx(2 + 2*c + 3*c*c + 1: 2 + 2*c + 4*c*c: 1) = (Z_vector_derivative_evalf + Decoherence_vector_evalf)*exp(-y(2*c+2))
+                        
+        end if
+    end subroutine evalf
+
+
+!!!!!! INITIAL CONDITIONS FOR PERTURBATIONS !!!!!!
+
+
+    ! 🔹 Diagonalizes a symmetric matrix (for Mass) and returns the matrix of eigenvectors.
+    function diagonalize_mass_U(Mass) result(U)
+        implicit none
+        real, intent(in) :: Mass(c, c)
+        real :: U(c, c)
+        real :: A(c, c), V(c, c), D(c)
+        real :: tol, c_rot, s_rot, tau, theta
+        real :: A_kk, A_ll, A_ik, A_il
+        integer :: i, k, l, sweep, max_sweeps
+        logical :: converged
+
+        A = Mass
+        V = 0.0d0
+        do i = 1, c
+            V(i, i) = 1.0d0
+        end do
+
+        tol = 1.0d-10
+        max_sweeps = 50
+
+        do sweep = 1, max_sweeps
+            converged = .true.
+            do k = 1, c - 1
+                do l = k + 1, c
+                    if (abs(A(k, l)) > tol) then
+                        converged = .false.
+
+                        theta = 0.5d0 * atan2(2.0d0 * A(k, l), A(l, l) - A(k, k))
+                        c_rot = cos(theta)
+                        s_rot = sin(theta)
+                        tau = s_rot / (1.0d0 + c_rot)
+
+                        A_kk = A(k, k)
+                        A_ll = A(l, l)
+
+                        A(k, k) = A_kk - A(k, l) * tau
+                        A(l, l) = A_ll + A(k, l) * tau
+                        A(k, l) = 0.0d0
+                        A(l, k) = 0.0d0
+
+                        do i = 1, c
+                            if (i /= k .and. i /= l) then
+                                A_ik = A(i, k)
+                                A_il = A(i, l)
+                                A(i, k) = c_rot * A_ik - s_rot * A_il
+                                A(k, i) = A(i, k)
+                                A(i, l) = c_rot * A_il + s_rot * A_ik
+                                A(l, i) = A(i, l)
+                            end if
+                        end do
+
+                        do i = 1, c
+                            A_ik = V(i, k)
+                            A_il = V(i, l)
+                            V(i, k) = c_rot * A_ik - s_rot * A_il
+                            V(i, l) = s_rot * A_ik + c_rot * A_il
+                        end do
+                    end if
+                end do
+            end do
+            if (converged) exit
+        end do
+
+        U = V
+    end function diagonalize_mass_U
+
+    ! 🔹 Diagonalizes a symmetric matrix (for Mass) and returns the eigenvalues.
+    function diagonalize_mass_D(Mass) result(D)
+        implicit none
+        real, intent(in) :: Mass(c, c)
+        real :: D(c)
+        real :: A(c, c), V(c, c)
+        real :: tol, c_rot, s_rot, tau, theta
+        real :: A_kk, A_ll, A_ik, A_il
+        integer :: i, k, l, sweep, max_sweeps
+        logical :: converged
+
+        A = Mass
+        V = 0.0d0 
+
+        tol = 1.0d-10
+        max_sweeps = 50
+
+        do sweep = 1, max_sweeps
+            converged = .true.
+            do k = 1, c - 1
+                do l = k + 1, c
+                    if (abs(A(k, l)) > tol) then
+                        converged = .false.
+
+                        theta = 0.5d0 * atan2(2.0d0 * A(k, l), A(l, l) - A(k, k))
+                        c_rot = cos(theta)
+                        s_rot = sin(theta)
+                        tau = s_rot / (1.0d0 + c_rot)
+
+                        A_kk = A(k, k)
+                        A_ll = A(l, l)
+
+                        A(k, k) = A_kk - A(k, l) * tau
+                        A(l, l) = A_ll + A(k, l) * tau
+                        A(k, l) = 0.0d0
+                        A(l, k) = 0.0d0
+
+                        do i = 1, c
+                            if (i /= k .and. i /= l) then
+                                A_ik = A(i, k)
+                                A_il = A(i, l)
+                                A(i, k) = c_rot * A_ik - s_rot * A_il
+                                A(k, i) = A(i, k)
+                                A(i, l) = c_rot * A_il + s_rot * A_ik
+                                A(l, i) = A(i, l)
+                            end if
+                        end do
+                    end if
+                end do
+            end do
+            if (converged) exit
+        end do
+
+        do i = 1, c
+            D(i) = A(i, i)
+        end do
+    end function diagonalize_mass_D
+
+    ! 🔹 Omega-squared diagonal matrix in the diagonal mass basis
+    function Omega_squared_diagonal(y, kcom, D) result(Omega_mat)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real, intent(in) :: D(c)
+        real :: Omega_mat(c, c)
+        integer :: a
+        real :: scale_f, H, kin_energy
+        
+        kin_energy = kin_energy_fields(y)
+        scale_f = exp(y(2*c + 2))
+        H = y(2*c + 1)
+
+        Omega_mat = 0.0d0
+        do a = 1, c
+            Omega_mat(a, a) = kcom*kcom + (-2.0d0 * H * H + kin_energy + D(a))*scale_f*scale_f
+        end do
+    end function Omega_squared_diagonal
+    
+    ! 🔹 Builds the pre-field correlator: 1/2 U Omega^(-1/2) U^T
+    function Field_correlator(y, kcom) result(Corr)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: Corr(c, c)
+        real :: Mass_squared_cor(c, c)
+        real :: Omega_diag(c, c), Omega_invsqrt_diag(c, c)
+        real :: U(c, c), D(c)
+        integer :: a
+        real :: scale_f
+        scale_f = exp(y(2*c + 2))
+        Mass_squared_cor = Mass_squared_function(y)
+        U = diagonalize_mass_U(Mass_squared_cor)
+        D = diagonalize_mass_D(Mass_squared_cor)
+
+        Omega_diag = Omega_squared_diagonal(y, kcom, D)
+        Omega_invsqrt_diag = 0.0d0
+        
+        do a = 1, c
+            Omega_invsqrt_diag(a, a) = 1.0d0 / sqrt(Omega_diag(a, a))
+        end do
+        
+        Corr = 0.5d0 * matmul(U, matmul(Omega_invsqrt_diag, transpose(U)))
+    end function Field_correlator
+
+    ! 🔹 Builds the pre-momentum correlator: 1/2 U Omega^(1/2) U^T
+    function Momentum_correlator(y, kcom) result(MomCorr)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: MomCorr(c, c)
+        real :: Mass_squared_cor(c, c)
+        real :: Omega_diag(c, c), Omega_sqrt_diag(c, c)
+        real :: U(c, c), D(c)
+        integer :: a
+        real :: scale_f
+        scale_f = exp(y(2*c + 2))
+        Mass_squared_cor = Mass_squared_function(y)
+        U = diagonalize_mass_U(Mass_squared_cor)
+        D = diagonalize_mass_D(Mass_squared_cor)
+
+        Omega_diag = Omega_squared_diagonal(y, kcom, D)
+        Omega_sqrt_diag = 0.0d0
+        
+        do a = 1, c
+            Omega_sqrt_diag(a, a) = sqrt(Omega_diag(a, a))
+        end do
+
+        MomCorr = 0.5d0 * matmul(U, matmul(Omega_sqrt_diag, transpose(U)))
+    end function Momentum_correlator
+
+    ! 🔹 Builds the initial Cholesky matrix L (lower triangular)
+    function Initial_L_function(y, kcom) result(L)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: L(c, c)
+        real :: correlator(c, c)
+        real :: sum_ma
+        integer :: i, j, k
+
+        correlator = Field_correlator(y, kcom)
+        L = 0.0d0
+
+        do i = 1, c
+            do j = 1, i
+                sum_ma = correlator(i,j)
+                do k = 1, j-1
+                    sum_ma = sum_ma - L(i,k) * L(j,k)
+                end do
+
+                if (i == j) then
+                    if (sum_ma <= 0.0d0) then
+                        print *, "Error: matrix not positive definite in Cholesky."
+                        stop
+                    end if
+                    L(i,j) = sqrt(sum_ma)
+                else
+                    L(i,j) = sum_ma / L(j,j)
+                end if
+            end do
+        end do
+    end function Initial_L_function
+
+    ! 🔹 Builds the initial y_dot y_dot matrix
+    function Initial_Z_function(y, kcom) result(Z)
+        implicit none
+        real, intent(in) :: y(nvar)
+        real, intent(in) :: kcom
+        real :: Z(c, c)
+        real :: L(c, c), Linv(c, c)
+        real :: MomCorr(c, c)
+        
+        L = Initial_L_function(y, kcom)
+        Linv = Inverse_Matrix(L)
+        MomCorr = Momentum_correlator(y, kcom)
+
+        Z = matmul(Linv, matmul(MomCorr, transpose(Linv)))
+    end function Initial_Z_function
+
+    
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+end program ps_decoherence_multi_fields
