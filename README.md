@@ -1,5 +1,3 @@
-Repository under construction (11/24-11/28)
-
 <h1 style="font-size: 60px; text-align: center;">
 Numerical tiling-based simulations of decoherence<br>
 in multifield models of inflation
