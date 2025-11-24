@@ -14,5 +14,5 @@ This repository contains the core code required to reproduce the results present
 The code computes the two-point mode correlation functions (and other observables derived from them) for one and two-field models of inflation, but is easily scalable to theories with an arbitrarily large number of fields.
 
 <p align="center">
-  <img src="Movies/mf_wgnr.gif" width="600">
+  <img src="Movies/mf_wgnr.gif" width="900">
 </p>
