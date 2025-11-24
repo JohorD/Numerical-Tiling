@@ -44,17 +44,17 @@ This project requires the following software:
 
 <h3>Modules</h3>
 
-1. styles_format.py:
+- styles_format.py:
    -
-2. architecture.py:
+- architecture.py:
    -
-3. generate_fortran.py:
+- generate_fortran.py:
    -
-4. run_fortran.py:
+- run_fortran.py:
    -
-5. load_data.py:
+- load_data.py:
    -
-6. configurations.py:
+- configurations.py:
    -
 
 
