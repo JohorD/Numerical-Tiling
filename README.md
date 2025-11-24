@@ -8,7 +8,6 @@ The code computes the two-point mode correlation functions (and other observable
 
 
 
-<video width="600" controls>
-  <source src="Movies/sf_wgnr.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+<p align="center">
+  <img src="Movies/sf_wgnr.gif" width="600">
+</p>
