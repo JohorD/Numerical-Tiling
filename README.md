@@ -16,3 +16,33 @@ The code computes the two-point mode correlation functions (and other observable
 <p align="center">
   <img src="Movies/mf_wgnr.gif" width="900">
 </p>
+
+
+<h3>Prerequisites</h3>
+
+This project requires the following software:
+
+1. Python environment:
+- Python 3.9+
+- External Python packages:
+  - NumPy
+  - Matplotlib
+  - Pillow
+
+2. Fortran compiler
+
+A Fortran compiler is required to build and run the numerical simulations.
+
+You may use:
+
+gfortran (GNU Fortran, recommended for portability)
+
+ifx (Intel oneAPI Fortran compiler, recommended for performance)
+
+3. screen for persistent terminal sessions
+
+Some long simulations rely on screen to keep processes running after closing the terminal.
+
+
+
+
