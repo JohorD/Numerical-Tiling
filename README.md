@@ -46,25 +46,25 @@ This project requires the following software:
 
 
 
-- [<img src="https://img.shields.io/badge/architecture.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/blob/main/modules_py/architecture.py) :
+- [<img src="https://img.shields.io/badge/architecture.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/modules_py/architecture.py) :
   - Generates all required directories and files containing data, Fortran source code, and executables. It manages the configuration of decoherence events and the accident-free scenario, which determines the relevant physical scales in the problem. Its behavior depends on the operation mode (single-field or multifield).  
     **Note:** this module and `generate_fortran.py` must be extended to support more than two fields.
 
-- [<img src="https://img.shields.io/badge/configurations.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/blob/main/modules_py/configurations.py) :
+- [<img src="https://img.shields.io/badge/configurations.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/modules_py/configurations.py) :
   - Uses the physical scales associated with the accident-free scenario to load the event distribution into the evolution routines, identifying which decoherence events effectively modify the mode dynamics. It also generates a preview of the tile layout used in the mode-injection scheme.
 
-- [<img src="https://img.shields.io/badge/generate_fortran.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/blob/main/modules_py/generate_fortran.py) :
+- [<img src="https://img.shields.io/badge/generate_fortran.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/modules_py/generate_fortran.py) :
   - Defines the number of cases to simulate. The user specifies the number of modes and may distribute the workload across multiple parallel processes. This module also sets the location of the physical scale and the sampling rate used when writing evolution data to disk.  
     The number of fields can be adjusted by providing the potential derivatives, the environment operators, and the initial conditions associated with each field.  
     By default, it is prepared to simulate one- and two-field quartic models and allows the use of linear combinations of adiabatic and isocurvature environment operators.
 
-- [<img src="https://img.shields.io/badge/run_fortran.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/blob/main/modules_py/run_fortran.py) :
+- [<img src="https://img.shields.io/badge/run_fortran.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/modules_py/run_fortran.py) :
   - Compiles and executes the generated Fortran simulations, managing the full execution pipeline.
 
-- [<img src="https://img.shields.io/badge/load_data.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/blob/main/modules_py/load_data.py) :
+- [<img src="https://img.shields.io/badge/load_data.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/modules_py/load_data.py) :
   - Provides a dictionary that maps the variables produced by the Fortran code to Python structures. It enables loading and plotting of additional observables such as state purity, entanglement entropy, and related quantities.
 
-- [<img src="https://img.shields.io/badge/styles_format.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/blob/main/modules_py/styles_format.py) :
+- [<img src="https://img.shields.io/badge/styles_format.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/Numerical-Tiling-DEMO-USER/modules_py/styles_format.py) :
   - Defines the plotting style for labels and tick marks, sets scientific notation, and enables TeX rendering for publication-quality figures.
 
 
