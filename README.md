@@ -76,6 +76,3 @@ Please report bugs, questions and further improvements to
     jpenalbaq@uni.pe
 </a>
 
-<div align="center">
-  <img src="https://visitor-badge.laobi.icu/badge?page_id=hola.hola&"  />
-</div>
