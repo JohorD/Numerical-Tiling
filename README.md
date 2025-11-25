@@ -70,6 +70,7 @@ This project requires the following software:
 
 [<img src="https://img.shields.io/badge/DEMO-TUTORIAL-paper-orange" height="20">](https://github.com/JohorD/Numerical-Tiling/blob/main/Numerical-Tiling-DEMO-USER/Numerical-Tiling-DEMO-USER.ipynb)
 
+
 <h3>Q&A</h3>
 Please report bugs, questions and further improvements to 
 <a href="https://mail.google.com/mail/?view=cm&fs=1&to=jpenalbaq@uni.pe" target="_blank">
