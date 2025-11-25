@@ -65,3 +65,12 @@ This project requires the following software:
 
 - [<img src="https://img.shields.io/badge/styles_format.py-paper-green" height="20">](https://github.com/JohorD/Numerical-Tiling/blob/main/Numerical-Tiling-DEMO-USER/modules_py/styles_format.py) :
   - Defines the plotting style for labels and tick marks, sets scientific notation, and enables TeX rendering for publication-quality figures.
+ 
+
+
+<h3>Q&A</h3>
+Please report bugs, questions and further improvements to 
+<a href="https://mail.google.com/mail/?view=cm&fs=1&to=jpenalbaq@uni.pe" target="_blank">
+    jpenalbaq@uni.pe
+</a>
+
