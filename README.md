@@ -68,8 +68,7 @@ This project requires the following software:
  
 <h3>Tutorial</h3>
 
-[<img src="https://img.shields.io/badge/DEMO-TUTORIAL-paper-orange" height="20">](https://github.com/JohorD/Numerical-Tiling/blob/main/Numerical-Tiling-DEMO-USER/Numerical-Tiling-DEMO-USER.ipynb)
-
+[<img src="https://img.shields.io/badge/DEMO--TUTORIAL-paper-orange" height="20">](https://github.com/JohorD/Numerical-Tiling/blob/main/Numerical-Tiling-DEMO-USER/Numerical-Tiling-DEMO-USER.ipynb)
 
 <h3>Q&A</h3>
 Please report bugs, questions and further improvements to 
