@@ -34,8 +34,8 @@ This project requires the following software:
    A Fortran compiler is required to build and run the numerical simulations.
 
    You may use:
-   - <span class="texttt">gfortran</span> (GNU Fortran, recommended for portability)
    - <span class="texttt">ifx</span> (for Linux distributions: Intel oneAPI Fortran compiler, recommended for performance)
+   - <span class="texttt">gfortran</span> (GNU Fortran, recommended for portability, coming soon)
 
 3. <span class="texttt">screen</span> for persistent terminal sessions
 
