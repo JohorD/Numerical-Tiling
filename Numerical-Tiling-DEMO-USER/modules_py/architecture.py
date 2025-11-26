@@ -2,6 +2,15 @@
 
 import os
 
+"""
+Module responsible for managing the folder structure associated with the different
+project integration modes. It defines the mapping between each mode and its base folder
+and provides a function to create summary files within the corresponding folder.
+
+
+It also includes a default reference folder for `int0`, reserved for cases without environmental effects.
+"""
+
 # ============================================================
 # Mapping of mode → base folder (expandable: three_fields, ...)
 # ============================================================
@@ -22,6 +31,8 @@ def create_split_file(mode="single"):
     """
     Create the int0 summary file inside the correct folder
     for the selected mode.
+
+    MODE_FOLDERS[mode] / int0_block_file / int0_summary.inc    
     """
     if mode not in MODE_FOLDERS:
         raise ValueError(f"Unknown mode '{mode}'.")

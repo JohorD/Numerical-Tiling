@@ -2,6 +2,19 @@
 import os
 from modules_py.architecture import MODE_FOLDERS
 
+"""
+Module responsible for automatically building and generating the Fortran files needed
+for each simulation mode. It defines default profiles (`DEFAULT_PROFILES`) for each
+mode—for example, `single` or `two_field`—and allows the user to overwrite any parameter
+of interest (already defined or to be defined), provided that said parameter exists in the template used.
+
+From a template located in `templates_fortran/`, the module assembles
+the configuration values—global, case, and parallel iteration—and
+generates the `.f90` files within the corresponding
+folder defined in `MODE_FOLDERS`. Each set of parameters produces a separate
+Fortran file, organized by mode and iteration block according to the `parallel` configuration.
+"""
+
 # -------------------------
 # Default profiles
 # -------------------------
@@ -9,7 +22,13 @@ DEFAULT_PROFILES = {
     "single": {
         # settings_case
         "case": {
+            # Case identifier. 0 is reserved for the case without incoherence;
+            # values 1, 2, 3, ... are used for the other scenarios.
             "fortran_mod_pref": 0,
+            # Parameterization selector for “accidents.” Accepts 0 or 1:
+            #   0 → parameterization in (logL–k) (parallelograms).
+            #   1 → parameterization in (logL–N) (rectangles) DEFAULT.
+            # The possibility of adding more options in the future is left open (2, 3, ...).
             "fortran_mod_accident": 1,
         },
         # settings_global

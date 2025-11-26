@@ -5,6 +5,10 @@ from matplotlib import MatplotlibDeprecationWarning, rc
 import matplotlib.pyplot as plt
 import numpy as np
 
+"""
+Module for configuring the general style of figures and
+formatting numbers in LaTeX scientific notation.
+"""
 
 # ------------------------------------------------------------
 # Ignore deprecation warnings and other common warnings
