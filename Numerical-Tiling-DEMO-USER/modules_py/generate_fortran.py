@@ -34,8 +34,12 @@ DEFAULT_PROFILES = {
         # settings_global
         "global": {
             # settings_perturbations
+            # Total number of modes to inject.
             "fortran_N_mod": 365,
+            # Separation between successive modes.
+            # Each new mode is injected every N_step efolds.
             "fortran_N_step": 0.2,
+            # Efold value where the firts mode is injected.
             "fortran_N_initial_inj": 0.0,
             "fortran_time_resolution": 500,
             "fortran_ellipse": ".true.",
