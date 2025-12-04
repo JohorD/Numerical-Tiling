@@ -41,18 +41,38 @@ DEFAULT_PROFILES = {
             "fortran_N_step": 0.2,
             # Efold value where the firts mode is injected.
             "fortran_N_initial_inj": 0.0,
-            "fortran_time_resolution": 500,
+            # Controls whether the temporal evolution of the injected modes is printed.
+            # .true. → the evolution of each mode + the final state of all modes is printed.
+            # .false. → only the final state of all modes is printed.
             "fortran_ellipse": ".true.",
+            # Frequency (in iterations) with which the evolution data is saved
+            # for each mode (only if fortran_ellipse = .true.).
+            "fortran_time_resolution": 500,
+            # Frequency with which ellipse files are printed between modes.
+            # If it is 10, an ellipse is printed every 10 injected modes
+            # (only if fortran_ellipse = .true.).
             "fortran_ellipse_resolution": 10,
             # settings_background_and_kphys
+            # Initial conditions for the inflaton field
             "initial_phi": 25.0,
             "initial_phi_dot": 0.0,
+            # Initial value of ln(a). The evolution of the background starts here,
+            # typically several e-folds before the injection of modes to
+            # ensure that the system reaches the attractor.
             "initial_ln_a": -5.0,
+            # Factor that determines the physical value of the mode at the moment of its injection.
+            # Once the evolution reaches N_initial_inj, the following is calculated:
+            #     k_phys = fortran_kphys * H
+            # where H is the value of the Hubble parameter at that instant.
             "fortran_kphys": 1000.0,
             # settings_potential
+            # Inflation potential displayed in a user-readable format.
             "fortran_potential": "V(φ) = λ φ⁴ / 4",
+            # Expression of the potential used in the Fortran code.
             "fortran_Vphi": "1.0d-14 * phi*phi*phi*phi / 4.0",
+            # First derivative of the potential with respect to the φ field.
             "fortran_Vprime": "1.0d-14 * phi*phi*phi",
+            # Second derivative of the potential with respect to φ.
             "fortran_Vprimeprime": "3.0 * 1.0d-14 * phi*phi",
             # settings_window
             "fortran_transition": 0.5,
@@ -73,32 +93,65 @@ DEFAULT_PROFILES = {
     "two_field": {
         # settings_case
         "case": {
+            # Case identifier. 0 is reserved for the case without incoherence;
+            # values 1, 2, 3, ... are used for the other scenarios.
             "fortran_mod_pref": 0,
+            # Parameterization selector for “accidents.” Accepts 0 or 1:
+            #   0 → parameterization in (logL–k) (parallelograms).
+            #   1 → parameterization in (logL–N) (rectangles) DEFAULT.
+            # The possibility of adding more options in the future is left open (2, 3, ...).
             "fortran_mod_accident": 1,
         },
         # settings_global
         "global": {
             # settings_perturbations
+            # Total number of modes to inject.
             "fortran_N_mod": 415,
+            # Separation between successive modes.
+            # Each new mode is injected every N_step efolds.
             "fortran_N_step": 0.2,
+            # Efold value where the firts mode is injected.
             "fortran_N_initial_inj": 0.0,
-            "fortran_time_resolution": 500,
+            # Controls whether the temporal evolution of the injected modes is printed.
+            # .true. → the evolution of each mode + the final state of all modes is printed.
+            # .false. → only the final state of all modes is printed.
             "fortran_ellipse": ".true.",
+            # Frequency (in iterations) with which the evolution data is saved
+            # for each mode (only if fortran_ellipse = .true.).
+            "fortran_time_resolution": 500,
+            # Frequency with which ellipse files are printed between modes.
+            # If it is 10, an ellipse is printed every 10 injected modes
+            # (only if fortran_ellipse = .true.).
             "fortran_ellipse_resolution": 10,
             # settings_background_and_kphys
+            # Initial conditions for the fields
             "initial_phi_1_two_field": 20.0,
             "initial_phi_dot_1_two_field": 0.0,
             "initial_phi_2_two_field": 20.0,
             "initial_phi_dot_2_two_field": 0.0,
+            # Initial value of ln(a). The evolution of the background starts here,
+            # typically several e-folds before the injection of modes to
+            # ensure that the system reaches the attractor.
             "initial_ln_a": -5.0,
+            # Factor that determines the physical value of the mode at the moment of its injection.
+            # Once the evolution reaches N_initial_inj, the following is calculated:
+            #     k_phys = fortran_kphys * H
+            # where H is the value of the Hubble parameter at that instant.
             "fortran_kphys": 1000.0,
             # settings_potential
+            # Inflation potential displayed in a user-readable format.
             "fortran_potential_two_field": "V(φ₁, φ₂) = λ φ₁⁴ / 4 + 1/2 g φ₁² φ₂²",
+            # Expression of the potential used in the Fortran code.
             "fortran_Vphi_two_field": "1.0d-14 * phi(1)*phi(1)*phi(1)*phi(1)*0.25 + 0.5*(2.0*(1.0d-14))*phi(1)*phi(1)*phi(2)*phi(2)",
+            # First derivative of the potential with respect to the φ₁ field.
             "fortran_Vprime_1_two_field": "1.0d-14 * phi(1)*phi(1)*phi(1) + (2.0*(1.0d-14))*phi(1)*phi(2)*phi(2)",
+            # First derivative of the potential with respect to the φ₂ field.
             "fortran_Vprime_2_two_field": "(2.0*(1.0d-14))*phi(1)*phi(1)*phi(2)",
+            # Second derivative of the potential with respect to φ₁φ₁
             "fortran_Vprimeprime_11_two_field": "3.0 * 1.0d-14 * phi(1)*phi(1) + (2.0*(1.0d-14))*phi(2)*phi(2)",
+            # Second derivative of the potential with respect to φ₁φ₂
             "fortran_Vprimeprime_12_two_field": "2.0*(2.0*(1.0d-14))*phi(1)*phi(2)",
+            # Second derivative of the potential with respect to φ₂φ₂
             "fortran_Vprimeprime_22_two_field": "(2.0*(1.0d-14))*phi(1)*phi(1)",
             # settings_window
             "fortran_transition": 0.5,
