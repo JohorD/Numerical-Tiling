@@ -386,6 +386,10 @@ def preview_accidents(
     
     return figures
 
+# =====================================================================
+# Grid for accidentes
+# =====================================================================
+
 
 def generate_rectangular_grid(
         x_divisions=48,

@@ -6,6 +6,24 @@ import time
 from modules_py.architecture import MODE_FOLDERS
 
 def run_simulation(mode, param_sets):
+    """
+    Compile and execute the Fortran (.f90) codes generated for the selected mode,
+    using parallel executions via `screen`.
+
+    For each parallelization block:
+      - Compile the .f90 file using the Intel `ifx` compiler.
+      - Run each binary in a separate `screen` session.
+
+    The status of the simulations is monitored every 15 seconds until
+    all sessions are complete. Once completed, the partial
+    power spectrum files are concatenated into a single final file within the
+    corresponding evolution directory.
+
+    Note:
+    - By default, `ifx` (Intel oneAPI) is used on Linux.
+    - It can be easily adapted to other compilers (gfortran, ifort)
+      or other systems (e.g., macOS).
+    """
 
     # Extract from param_sets
     mod_pref = param_sets[0]["fortran_mod_pref"]

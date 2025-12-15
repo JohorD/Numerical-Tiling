@@ -75,9 +75,21 @@ DEFAULT_PROFILES = {
             # Second derivative of the potential with respect to φ.
             "fortran_Vprimeprime": "3.0 * 1.0d-14 * phi*phi",
             # settings_window
+            # Transition and smoothness parameter (]0,1[, 0.5 is recommended)
             "fortran_transition": 0.5,
         },
         # settings_iter_parallel
+        # Configuration of parallelization by mode blocks.
+        # Allows Fortran code to be generated for:
+        #   - a complete execution with all modes (“Complete”), or
+        #   - partial executions (“Part_i”) covering specific ranges of modes.
+        #
+        # Each entry defines the range of modes to be simulated by:
+        #   fortran_iter_initial → first mode of the block
+        #   fortran_iter_final   → last mode of the block (NOTE: Take into account the total number of injected modes)
+        #
+        # This structure allows independent .f90 files to be generated,
+        # facilitating parallel execution or analysis in parts.
         "parallel": [
             {"fortran_part_iter_parallel": "Complete", "fortran_iter_initial": 1, "fortran_iter_final": 365},
             {"fortran_part_iter_parallel": "Part_1",   "fortran_iter_initial": 1,   "fortran_iter_final": 50},
@@ -154,21 +166,25 @@ DEFAULT_PROFILES = {
             # Second derivative of the potential with respect to φ₂φ₂
             "fortran_Vprimeprime_22_two_field": "(2.0*(1.0d-14))*phi(1)*phi(1)",
             # settings_window
+            # Transition and smoothness parameter (]0,1[, 0.5 is recommended)
             "fortran_transition": 0.5,
             # settings_environment / interactions
-            #Generic
+            # Generic
+            # Form of linear coupling with the environment, shown in readable format.
             "fortran_interaction_two_field": "I = α₁ v₁ + α₂ v₂",
+            # Linear coupling coefficients with the environment.
             "fortran_alpha_1_two_field": 1.0,
             "fortran_alpha_2_two_field": 1.0,
+            # Coupling expressions used in the Fortran code for each field.
             "fortran_interaction_1_two_field": "alpha(1)",
             "fortran_interaction_2_two_field": "alpha(2)",            
-            #Isentropic
+            # Isentropic
             #fortran_interaction_two_field="I∥ = α₁ v∥₁ + α₂ v∥₂",
             #fortran_alpha_1_two_field=1.0,
             #fortran_alpha_2_two_field=1.0,
             #fortran_interaction_1_two_field= "( alpha(1)*phi_dot(1)*phi_dot(1) + alpha(2)*phi_dot(1)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
             #fortran_interaction_2_two_field= "( alpha(1)*phi_dot(1)*phi_dot(2) + alpha(2)*phi_dot(2)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
-            #Isocurvature
+            # Isocurvature
             #fortran_interaction_two_field="I⊥ = α₁ v⊥₁ + α₂ v⊥₂",
             #fortran_alpha_1_two_field=1.0,
             #fortran_alpha_2_two_field=1.0,
@@ -176,6 +192,17 @@ DEFAULT_PROFILES = {
             #fortran_interaction_2_two_field= "alpha(2) - ( alpha(1)*phi_dot(1)*phi_dot(2) + alpha(2)*phi_dot(2)*phi_dot(2) )/( phi_dot(1)*phi_dot(1) + phi_dot(2)*phi_dot(2) )",
         },
         # settings_iter_parallel
+        # Configuration of parallelization by mode blocks.
+        # Allows Fortran code to be generated for:
+        #   - a complete execution with all modes (“Complete”), or
+        #   - partial executions (“Part_i”) covering specific ranges of modes.
+        #
+        # Each entry defines the range of modes to be simulated by:
+        #   fortran_iter_initial → first mode of the block
+        #   fortran_iter_final   → last mode of the block (NOTE: Take into account the total number of injected modes)
+        #
+        # This structure allows independent .f90 files to be generated,
+        # facilitating parallel execution or analysis in parts.
         "parallel": [
             {"fortran_part_iter_parallel": "Complete", "fortran_iter_initial": 1, "fortran_iter_final": 415},
             {"fortran_part_iter_parallel": "Part_1",   "fortran_iter_initial": 1,   "fortran_iter_final": 60},
@@ -193,6 +220,10 @@ DEFAULT_PROFILES = {
 # Load template from folder
 # -------------------------
 def load_template(filename):
+    """
+    Loads and returns the contents of a Fortran template located in
+    the ‘templates_fortran/’ directory.
+    """
     path = os.path.join("templates_fortran", filename)
     with open(path, "r") as f:
         return f.read()
@@ -202,7 +233,18 @@ def load_template(filename):
 # Build parameter sets
 # -------------------------
 def build_parameter_sets(mode, case_overrides=None, global_overrides=None, parallel_overrides=None):
+    """
+    Build parameter sets from the default profile.
 
+    Combine:
+      - case parameters (`case`),
+      - global parameters (`global`),
+      - and parallelization parameters (`parallel`).
+
+    The user can override any of these values using the
+    *_overrides dictionaries. Each parallelization block generates a separate
+    set of parameters.
+    """
     if mode not in DEFAULT_PROFILES:
         raise ValueError("Unknown mode.")
 
@@ -223,8 +265,15 @@ def build_parameter_sets(mode, case_overrides=None, global_overrides=None, paral
 # -------------------------
 def generate_fortran_files(template_text, mode, param_sets, output_root=None):
     """
-    Generates:
-      MODE_FOLDERS[mode] / Data_&_Codes_xxx / Tiling_...f90
+    Generates Fortran files (.f90) from a template and the
+    constructed parameter sets.
+
+    The files are organized in the following structure:
+        MODE_FOLDERS[mode] / Data_&_Codes_xxx / Tiling_*.f90
+
+    where `xxx` corresponds to the case identifier (`fortran_mod_pref`).
+    Each parameter set produces a separate .f90 file,
+    allowing for complete or parallelization block executions.
     """
     if mode not in MODE_FOLDERS:
         raise ValueError(f"Unknown mode '{mode}'.")
